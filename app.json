@@ -3,6 +3,7 @@
     "name": "SurfApp",
     "slug": "SurfApp",
     "version": "1.0.0",
+    "scheme": "surfapp",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -12,9 +13,11 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.SurfApp"
     },
     "android": {
+      "package": "com.anonymous.surfapp",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -22,8 +25,17 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       }
     },
+    "plugins": [
+      "expo-notifications"
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "678edd89-a95e-4c5d-bfcd-394d4f81b849"
+      }
+    },
+    "owner": "matiaspereyra24"
   }
 }

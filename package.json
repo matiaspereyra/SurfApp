@@ -4,15 +4,36 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "start:lan": "EXPO_NO_TELEMETRY=1 expo start --lan --clear",
+    "start:localhost": "CI=1 EXPO_NO_TELEMETRY=1 expo start --localhost --clear",
+    "start:tunnel": "EXPO_NO_TELEMETRY=1 expo start --tunnel --clear",
+    "open:ios-local": "xcrun simctl openurl booted exp://127.0.0.1:8081",
+    "recover": "bash ./scripts/recover-expo.sh",
+    "recover:ios": "bash ./scripts/recover-ios.sh",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web"
   },
   "dependencies": {
-    "expo": "55.0.10-canary-20260327-0789fbc",
-    "expo-status-bar": "55.0.5-canary-20260327-0789fbc",
-    "react": "19.2.0",
-    "react-native": "0.83.4"
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@supabase/supabase-js": "^2.100.1",
+    "axios": "^1.14.0",
+    "expo": "^54.0.0",
+    "expo-device": "~8.0.10",
+    "expo-location": "~19.0.8",
+    "expo-notifications": "~0.32.16",
+    "expo-status-bar": "~3.0.9",
+    "lucide-react-native": "^1.7.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-maps": "1.20.1",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-svg": "15.12.1"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@expo/ngrok": "^4.1.3",
+    "@types/react": "~19.1.10",
+    "typescript": "~5.9.2"
+  }
 }
