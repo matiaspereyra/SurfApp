@@ -431,6 +431,65 @@ export default function ForecastScreen({
           </View>
         </View>
 
+        {/* Hourly Forecast Table for Today */}
+        <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>HOY - PRONÓSTICO POR HORA</Text>
+        
+        {!hasLiveForecast || !displayForecast[0]?.hourlyData?.length ? (
+          <Text style={styles.emptyForecastText}>No hay datos horarios disponibles para hoy.</Text>
+        ) : (
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.tableContainer}
+            contentContainerStyle={styles.tableContent}
+          >
+            <View style={styles.forecastTable}>
+              {/* Header Row */}
+              <View style={styles.tableHeaderRow}>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellDay]}>HORA</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>SWELL</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>PER</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>DIR</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>VIENTO</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>AGUA</Text>
+              </View>
+              
+              {/* Data Rows */}
+              {displayForecast[0].hourlyData.map((hour, idx) => (
+                <View 
+                  key={idx}
+                  style={styles.tableDataRow}
+                >
+                  <Text style={[styles.tableCell, styles.tableCellDay, styles.tableHourText]}>{hour.time}</Text>
+                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
+                    {hour.swellHeight}<Text style={styles.unitSmall}>m</Text>
+                  </Text>
+                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
+                    {hour.swellPeriod}<Text style={styles.unitSmall}>s</Text>
+                  </Text>
+                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
+                    {hour.swellDirection}
+                  </Text>
+                  <View 
+                    style={[
+                      styles.tableCell, 
+                      styles.tableCellMetric, 
+                      styles.windSpeedCell,
+                      { backgroundColor: getWindColorBg(hour.windSpeed) }
+                    ]}
+                  >
+                    <Text style={styles.windSpeedText}>{hour.windSpeed}</Text>
+                    <Text style={styles.unitSmall}>kts</Text>
+                  </View>
+                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
+                    {hour.waterTemp}<Text style={styles.unitSmall}>°C</Text>
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        )}
+
         {/* 16-Day Forecast Table */}
         <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>PRONÓSTICO 16 DÍAS</Text>
         
@@ -504,27 +563,7 @@ export default function ForecastScreen({
           </ScrollView>
         )}
 
-        {/* Simple Summary Section */}
-        <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>HOY</Text>
-        <View style={styles.todaySummary}>
-          <View style={styles.todayRow}>
-            <View style={styles.todayItem}>
-              <Text style={styles.todayLabel}>ALTURA</Text>
-              <Text style={styles.todayValue}>{displayForecast?.[0]?.height?.min ?? '--'}-{displayForecast?.[0]?.height?.max ?? '--'}m</Text>
-            </View>
-            <View style={styles.todayItem}>
-              <Text style={styles.todayLabel}>VIENTO</Text>
-              <Text style={styles.todayValue}>{displayForecast?.[0]?.windSpeed ?? '--'}kts</Text>
-            </View>
-            <View style={styles.todayItem}>
-              <Text style={styles.todayLabel}>AGUA</Text>
-              <Text style={styles.todayValue}>{displayForecast?.[0]?.waterTemp ?? '--'}°C</Text>
-            </View>
-          </View>
-        </View>
-      </Animated.ScrollView>
-
-      {/* Modal de Detalles */}
+        {/* Modal de Detalles */}
       <DayDetailModal
         visible={modalVisible}
         day={selectedDay}
@@ -776,37 +815,10 @@ const styles = StyleSheet.create({
   },
   emptyForecastText: { color: '#8EA2B8', fontSize: 13, paddingHorizontal: 8, paddingVertical: 8 },
 
-  // Today Summary
-  todaySummary: {
-    paddingHorizontal: 14,
-    marginBottom: 30,
-  },
-  todayRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: '#061723',
-    borderWidth: 1,
-    borderColor: '#1E4E63',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-  },
-  todayItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  todayLabel: {
-    color: '#6E8CA0',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  todayValue: {
-    color: '#E7F7FF',
-    fontSize: 17,
-    fontWeight: '900',
+  tableHourText: {
+    color: '#E5F6FF',
+    fontSize: 12,
+    fontWeight: '800',
   },
 
   // Modal

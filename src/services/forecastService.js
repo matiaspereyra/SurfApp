@@ -119,7 +119,7 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
 
   const { data: hourlyRows } = await supabase
     .from('spot_forecast_hourly')
-    .select('forecast_time, sea_level_height_msl_m, sea_surface_temperature_c')
+    .select('forecast_time, sea_level_height_msl_m, sea_surface_temperature_c, swell_wave_height_m, swell_wave_direction_deg, swell_wave_period_s, wind_speed_ms, wind_wave_direction_deg')
     .eq('provider', 'open-meteo')
     .eq('spot_name', spotName)
     .gte('forecast_time', `${startDate}T00:00:00+13:00`)
@@ -175,6 +175,15 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
       waterTemp: Math.round(avgTemp),
       tideData: buildTideData(dayHourly),
       neopreneThickness: neopreneByTemp(avgTemp),
+      hourlyData: dayHourly.slice(0, 24).map((h) => ({
+        time: new Date(h.forecast_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: NZ_TIMEZONE }),
+        swellHeight: toOneDecimal(h.swell_wave_height_m ?? h.swell_wave_height_max_m ?? 0.8),
+        swellPeriod: Math.round(Number(h.swell_wave_period_s ?? h.swell_wave_period_max_s ?? 10)),
+        swellDirection: toCardinal(h.swell_wave_direction_deg ?? h.swell_wave_direction_dominant_deg),
+        windSpeed: Math.round((Number(h.wind_speed_ms || 5) * 1.943844) * 10) / 10,
+        windDirection: toCardinal(h.wind_wave_direction_deg ?? h.wind_wave_direction_dominant_deg),
+        waterTemp: Math.round(Number(h.sea_surface_temperature_c || avgTemp)),
+      })) || [],
     };
   });
 
