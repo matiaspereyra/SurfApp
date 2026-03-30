@@ -14,27 +14,97 @@ const { width, height } = Dimensions.get('window');
 
 // Color para velocidad de viento
 const getWindColorBg = (windSpeed) => {
-  const speed = Number(windSpeed);
-  // Return neutral if invalid
-  if (isNaN(speed) || windSpeed === null || windSpeed === undefined) return '#1f2937'; // Gray neutral
-  if (speed < 15) return '#15803D'; // Verde bajo
-  if (speed < 25) return '#EA8C00'; // Naranja moderado
-  return '#DC2626'; // Rojo fuerte
+  const speedKts = Number(windSpeed);
+  if (isNaN(speedKts) || windSpeed === null || windSpeed === undefined) return '#1f2937';
+  const speedKph = speedKts * 1.852;
+  if (speedKph < 20) return '#16A34A';
+  if (speedKph < 35) return '#EA580C';
+  return '#DC2626';
 };
 
 // Función para convertir dirección a ángulo (invierte para mostrar hacia dónde va, no de dónde viene)
 const getDirectionAngle = (direction) => {
   const directions = {
     'N': 180,    // viene del norte, flecha apunta al sur
+    'NNE': 202.5,
     'NE': 225,   // viene del noreste, flecha apunta al suroeste
+    'ENE': 247.5,
     'E': 270,    // viene del este, flecha apunta al oeste
+    'ESE': 292.5,
     'SE': 315,   // viene del sureste, flecha apunta al noroeste
+    'SSE': 337.5,
     'S': 0,      // viene del sur, flecha apunta al norte
+    'SSW': 22.5,
     'SW': 45,    // viene del suroeste, flecha apunta al noreste
+    'WSW': 67.5,
     'W': 90,     // viene del oeste, flecha apunta al este
+    'WNW': 112.5,
     'NW': 135,   // viene del noroeste, flecha apunta al sureste
+    'NNW': 157.5,
   };
   return directions[direction] || 0;
+};
+
+const toKph = (kts) => {
+  const speed = Number(kts);
+  if (!Number.isFinite(speed)) return null;
+  return Math.round(speed * 1.852);
+};
+
+const THREE_HOUR_SLOTS = [0, 3, 6, 9, 12, 15, 18, 21];
+
+const formatForecastDayLabel = (dateKey, fallbackDayOfWeek = '') => {
+  if (!dateKey) return fallbackDayOfWeek || '--';
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return fallbackDayOfWeek || dateKey;
+  return parsed.toLocaleDateString('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+};
+
+const getHourFromTime = (time) => {
+  if (typeof time !== 'string' || time.length < 2) return null;
+  const hour = Number(time.slice(0, 2));
+  return Number.isFinite(hour) ? hour : null;
+};
+
+const formatHourSlot = (time) => {
+  const hour = getHourFromTime(time);
+  if (hour === null) return '--';
+  if (hour === 0) return '12am';
+  if (hour < 12) return `${hour}am`;
+  if (hour === 12) return 'Noon';
+  return `${hour - 12}pm`;
+};
+
+const getRowStars = (surfHeight, windKph) => {
+  const surf = Number(surfHeight);
+  const wind = Number(windKph);
+  if (!Number.isFinite(surf)) return '☆☆☆☆☆';
+
+  let score = 0;
+  if (surf >= 0.8) score += 1;
+  if (surf >= 1.2) score += 1;
+  if (surf >= 1.8) score += 1;
+  if (Number.isFinite(wind)) {
+    if (wind <= 20) score += 1;
+    if (wind <= 12) score += 1;
+  }
+
+  const clamped = Math.max(1, Math.min(5, score));
+  return `${'★'.repeat(clamped)}${'☆'.repeat(5 - clamped)}`;
+};
+
+const formatShortDate = (dateKey) => {
+  if (!dateKey) return '';
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return dateKey;
+  return parsed.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+  });
 };
 
 // Pantalla Modal de Detalles del Día
@@ -313,6 +383,41 @@ export default function ForecastScreen({
   const displayForecast = displaySpot?.forecast || [];
   const heroColor = SURFLINE_COLORS[displaySpot?.rating] || SURFLINE_COLORS.FAIR;
   const hasLiveForecast = Boolean(displaySpot && displayForecast.length);
+  const hourlyForecastByDay = displayForecast
+    .slice(0, 16)
+    .map((day) => {
+      const hourlyBySlot = new Map();
+      if (Array.isArray(day?.hourlyData)) {
+        day.hourlyData.forEach((hour) => {
+          const parsedHour = getHourFromTime(hour?.time);
+          if (parsedHour !== null && parsedHour % 3 === 0 && !hourlyBySlot.has(parsedHour)) {
+            hourlyBySlot.set(parsedHour, hour);
+          }
+        });
+      }
+
+      const entries = THREE_HOUR_SLOTS.map((slot) => {
+        const slotHour = hourlyBySlot.get(slot);
+        if (slotHour) return slotHour;
+        return {
+          time: `${String(slot).padStart(2, '0')}:00`,
+          surfHeight: null,
+          swellHeight: null,
+          swellPeriod: null,
+          swellDirection: null,
+          windSpeed: null,
+          windDirection: null,
+          windDirectionDeg: null,
+          isPlaceholder: true,
+        };
+      });
+
+      return {
+        ...day,
+        dayLabel: formatForecastDayLabel(day?.date, day?.dayOfWeek),
+        entries,
+      };
+    });
 
   const openDayDetail = (day) => {
     setSelectedDay(day);
@@ -433,67 +538,93 @@ export default function ForecastScreen({
           </View>
         </View>
 
-        {/* Hourly Forecast Table for Today */}
-        <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>HOY - PRONÓSTICO POR HORA</Text>
-        
-        {!hasLiveForecast || !displayForecast?.[0] ? (
+        {/* Hourly Forecast Table by Day (every 3h) */}
+        <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>PRONOSTICO DIARIO CADA 3 HORAS</Text>
+
+        {!hasLiveForecast || !hourlyForecastByDay.length ? (
           <Text style={styles.emptyForecastText}>Sin datos de forecast disponibles.</Text>
-        ) : !Array.isArray(displayForecast[0].hourlyData) || displayForecast[0].hourlyData.length === 0 ? (
-          <Text style={styles.emptyForecastText}>No hay datos horarios disponibles. Mostrando sumario diario.</Text>
         ) : (
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.tableContainer}
-            contentContainerStyle={styles.tableContent}
-          >
-            <View style={styles.forecastTable}>
-              {/* Header Row */}
-              <View style={styles.tableHeaderRow}>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellDay]}>HORA</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>SWELL</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>PER</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>DIR</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>VIENTO</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>AGUA</Text>
+          hourlyForecastByDay.map((day, dayIdx) => (
+            <View key={`${day.date}-${dayIdx}`} style={styles.dayHourlyCard}>
+              <View style={styles.dayHourlyHeader}>
+                <Text style={styles.dayHourlyTitle}>{day.dayOfWeek || day.dayLabel}</Text>
+                <Text style={styles.dayHourlySub}>{formatShortDate(day.date)}</Text>
               </View>
-              
-              {/* Data Rows */}
-              {displayForecast[0].hourlyData.map((hour, idx) => (
-                <View 
-                  key={`${hour.time}-${idx}`}
-                  style={styles.tableDataRow}
-                >
-                  <Text style={[styles.tableCell, styles.tableCellDay, styles.tableHourText]}>
-                    {hour.time || '--:--'}
-                  </Text>
-                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {hour.swellHeight ?? '--'}<Text style={styles.unitSmall}>m</Text>
-                  </Text>
-                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {hour.swellPeriod ?? '--'}<Text style={styles.unitSmall}>s</Text>
-                  </Text>
-                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {hour.swellDirection ?? '--'}
-                  </Text>
-                  <View 
-                    style={[
-                      styles.tableCell, 
-                      styles.tableCellMetric, 
-                      styles.windSpeedCell,
-                      { backgroundColor: getWindColorBg(hour.windSpeed) }
-                    ]}
-                  >
-                    <Text style={styles.windSpeedText}>{hour.windSpeed ?? '--'}</Text>
-                    <Text style={styles.unitSmall}>kts</Text>
+                <View style={styles.tableContainerNoScroll}>
+                  <View style={styles.forecastTable}>
+                    <View style={styles.tableHeaderRow}>
+                      <View style={[styles.tableCell, styles.hourCell, styles.headerHourCell]} />
+                      <View style={[styles.tableCell, styles.surfCell, styles.headerMainCell]}>
+                        <Text style={styles.tableHeader}>SURF</Text>
+                      </View>
+                      <View style={[styles.tableCell, styles.swellCell, styles.headerMainCell]}>
+                        <Text style={styles.tableHeader}>SWELL</Text>
+                      </View>
+                      <View style={[styles.tableCell, styles.windCell, styles.headerMainCell]}>
+                        <Text style={styles.tableHeader}>WIND</Text>
+                      </View>
+                    </View>
+
+                    {day.entries.map((hour, idx) => {
+                      const kph = toKph(hour.windSpeed);
+                      const stars = getRowStars(hour.surfHeight ?? hour.swellHeight, kph);
+                      const windAngle = Number.isFinite(Number(hour.windDirectionDeg))
+                        ? Number(hour.windDirectionDeg)
+                        : getDirectionAngle(hour.windDirection);
+
+                      return (
+                        <View
+                          key={`${day.date}-${hour.time}-${idx}`}
+                          style={[
+                            styles.tableDataRow,
+                            idx % 2 === 1 ? styles.tableDataRowAlt : null,
+                            compact ? styles.tableDataRowCompact : null,
+                            hour?.isPlaceholder ? styles.tableDataRowPlaceholder : null,
+                          ]}
+                        >
+                          <View style={[styles.tableCell, styles.hourCell, styles.hourBandCell, idx % 2 === 1 ? styles.hourBandCellAlt : null]}>
+                            <Text style={[styles.tableHourText, styles.verticalHourText]}>{formatHourSlot(hour.time)}</Text>
+                          </View>
+
+                          <View style={[styles.tableCell, styles.surfCell, styles.surfBandCell]}>
+                            <Text style={[styles.metricValue, styles.surfMetricValue]}>
+                              {hour.surfHeight ?? hour.swellHeight ?? '--'}<Text style={styles.surfUnitSmall}>m</Text>
+                            </Text>
+                          </View>
+
+                          <View style={[styles.tableCell, styles.swellCell, styles.combinedCell, styles.swellBandCell, idx % 2 === 1 ? styles.swellBandCellAlt : null]}>
+                            <Text style={styles.metricValue}>{hour.swellHeight ?? '--'}<Text style={styles.unitSmall}>m</Text></Text>
+                            <Text style={styles.swellSecondary}>{hour.swellPeriod ?? '--'}<Text style={styles.unitSmall}>s</Text> {hour.swellDirection ?? '--'}</Text>
+                            <Text style={styles.starLine}>{stars}</Text>
+                          </View>
+
+                          <View
+                            style={[
+                              styles.tableCell,
+                              styles.windCell,
+                              styles.windCombinedCell,
+                              { backgroundColor: getWindColorBg(hour.windSpeed) },
+                            ]}
+                          >
+                            <View style={styles.windMainInfo}>
+                              <Text style={styles.windSpeedText}>{kph ?? '--'} <Text style={styles.windUnit}>kph</Text></Text>
+                              <Text style={styles.windDirectionLine}>
+                                {hour.windDirection ?? '--'} {Number.isFinite(Number(hour.windDirectionDeg)) ? `${hour.windDirectionDeg}°` : ''}
+                              </Text>
+                            </View>
+                            <View style={[styles.windArrowPanel, idx % 2 === 0 ? styles.windArrowPanelEven : null]}>
+                              <View style={{ transform: [{ rotate: `${windAngle}deg` }] }}>
+                                <ArrowUp size={24} color="#FFFFFF" />
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    })}
                   </View>
-                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {hour.waterTemp ?? '--'}<Text style={styles.unitSmall}>°C</Text>
-                  </Text>
                 </View>
-              ))}
             </View>
-          </ScrollView>
+          ))
         )}
 
         {/* 16-Day Forecast Table */}
@@ -739,34 +870,80 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   tableContainer: {
-    marginHorizontal: 12,
-    marginBottom: 24,
+    marginHorizontal: 0,
+    marginBottom: 0,
+  },
+  tableContainerNoScroll: {
+    marginHorizontal: 0,
+    marginBottom: 0,
+    width: '100%',
   },
   tableContent: {
-    paddingRight: 12,
+    paddingRight: 0,
+  },
+  dayHourlyCard: {
+    marginHorizontal: 0,
+    marginBottom: 12,
+    borderWidth: 0,
+    borderColor: 'transparent',
+    borderRadius: 0,
+    backgroundColor: '#04111A',
+    overflow: 'visible',
+  },
+  dayHourlyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#1E2229',
+    borderBottomWidth: 1,
+    borderBottomColor: '#343A46',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  dayHourlyTitle: {
+    color: '#F1F5F9',
+    fontSize: 13,
+    fontWeight: '900',
+    textTransform: 'capitalize',
+  },
+  dayHourlySub: {
+    color: '#C2CBD7',
+    fontSize: 11,
+    fontWeight: '800',
   },
   forecastTable: {
-    borderRadius: 6,
+    borderRadius: 0,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#1E4E63',
-    backgroundColor: '#04111A',
+    borderWidth: 0,
+    borderColor: 'transparent',
+    backgroundColor: '#FFFFFF',
+    width: '100%',
   },
   tableHeaderRow: {
     flexDirection: 'row',
-    backgroundColor: '#0D2B3A',
+    backgroundColor: '#40B6E2',
     borderBottomWidth: 1,
-    borderBottomColor: '#1E4E63',
+    borderBottomColor: '#2FA0CA',
   },
   tableDataRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#113142',
+    borderBottomColor: '#D9E0E7',
     paddingVertical: 0,
+    minHeight: 74,
+  },
+  tableDataRowAlt: {
+    backgroundColor: '#FDFEFE',
+  },
+  tableDataRowPlaceholder: {
+    opacity: 0.68,
+  },
+  tableDataRowCompact: {
+    minHeight: 62,
   },
   tableCell: {
-    paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -776,11 +953,29 @@ const styles = StyleSheet.create({
   tableCellMetric: {
     minWidth: 64,
   },
+  hourCell: {
+    flex: 0.9,
+  },
+  surfCell: {
+    flex: 1.2,
+  },
+  swellCell: {
+    flex: 1.75,
+  },
+  windCell: {
+    flex: 2.1,
+  },
+  headerHourCell: {
+    backgroundColor: '#3B434D',
+  },
+  headerMainCell: {
+    backgroundColor: '#40B6E2',
+  },
   tableHeader: {
-    color: '#7EB3CB',
-    fontSize: 9,
+    color: '#F7FBFF',
+    fontSize: 11,
     fontWeight: '900',
-    letterSpacing: 0.9,
+    letterSpacing: 0.4,
   },
   tableDayText: {
     color: '#E5F6FF',
@@ -802,14 +997,24 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   metricValue: {
-    color: '#D2EAF7',
-    fontSize: 12,
-    fontWeight: '700',
+    color: '#17212B',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  surfMetricValue: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
   },
   unitSmall: {
-    color: '#8FB0C4',
-    fontSize: 9,
+    color: '#5F6C78',
+    fontSize: 10,
     fontWeight: '600',
+  },
+  surfUnitSmall: {
+    color: '#E8F6FF',
+    fontSize: 10,
+    fontWeight: '700',
   },
   windSpeedCell: {
     minWidth: 70,
@@ -820,12 +1025,97 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
   },
+  windUnit: {
+    color: '#E8F4FF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  hourBandCell: {
+    backgroundColor: '#F3F6FA',
+  },
+  hourBandCellAlt: {
+    backgroundColor: '#EDF2F7',
+  },
+  surfBandCell: {
+    backgroundColor: '#38B5E8',
+  },
+  swellBandCell: {
+    backgroundColor: '#F8FAFC',
+  },
+  swellBandCellAlt: {
+    backgroundColor: '#F3F7FB',
+  },
+  combinedCell: {
+    alignItems: 'flex-start',
+    gap: 3,
+  },
+  swellSecondary: {
+    color: '#3B4A59',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  starLine: {
+    color: '#6EC5EA',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  windCombinedCell: {
+    borderRadius: 0,
+    alignItems: 'stretch',
+    justifyContent: 'space-between',
+    flexDirection: 'row',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderLeftWidth: 1,
+    borderLeftColor: 'rgba(255,255,255,0.2)',
+  },
+  windMainInfo: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    gap: 2,
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255,255,255,0.22)',
+  },
+  windInlineRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  windArrowPanel: {
+    width: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderLeftWidth: 1,
+    borderLeftColor: 'rgba(255,255,255,0.32)',
+  },
+  windArrowPanelEven: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  windDirectionLine: {
+    color: '#F5F9FF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
   emptyForecastText: { color: '#8EA2B8', fontSize: 13, paddingHorizontal: 8, paddingVertical: 8 },
 
   tableHourText: {
-    color: '#E5F6FF',
+    color: '#495867',
     fontSize: 12,
     fontWeight: '800',
+  },
+  verticalHourText: {
+    transform: [{ rotate: '90deg' }],
+    width: 48,
+    textAlign: 'center',
+  },
+  verticalHeaderText: {
+    transform: [{ rotate: '90deg' }],
+    width: 42,
+    textAlign: 'center',
   },
 
   // Modal

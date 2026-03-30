@@ -8,10 +8,12 @@ import { SpotMarker } from '../components/SpotMarker';
 import { CompactReportsPreview } from '../components/CompactReportsPreview';
 import { MAP_DARK_STYLE } from '../constants/MapStyle';
 import { NZ_SPOTS } from '../constants/Spots';
+import { UI_COLORS } from '../theme/ui';
 import { fetchCommunityReports, fetchCommunityReportsExcludingViewed, markReportAsViewed, subscribeToCommunityReports } from '../services/communityService';
 import { requestPushPermission } from '../services/notificationService';
 
 const NEARBY_COMMENT_RADIUS_M = 20000;
+const BOTTOM_NAV_RESERVED_SPACE = 56;
 
 const toRad = (value) => (value * Math.PI) / 180;
 
@@ -56,6 +58,7 @@ export default function MapScreen({
   const [activeReportsPreview, setActiveReportsPreview] = useState([]);
   const mapExpanded = true;
   const previewTopOffset = Math.max(insets.top + 72, 112);
+  const bottomNavOffset = BOTTOM_NAV_RESERVED_SPACE + insets.bottom;
 
   const profileDisplayName = authProfile?.display_name || 'Surfer';
   const profileInitial = profileDisplayName?.[0]?.toUpperCase() || 'S';
@@ -352,6 +355,7 @@ export default function MapScreen({
         style={[
           styles.expandedContainer,
           {
+            paddingBottom: bottomNavOffset,
             opacity: 1,
             pointerEvents: 'auto',
           },
@@ -382,7 +386,7 @@ export default function MapScreen({
           ))}
         </MapView>
 
-        <View style={styles.controls}>
+        <View style={[styles.controls, { bottom: bottomNavOffset + 8 }]}>
           <View style={styles.spotCountBadge}>
             <Text style={styles.spotCountText}>{visibleSpots.length} visibles</Text>
           </View>
@@ -419,7 +423,7 @@ export default function MapScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#02070B' },
+  container: { flex: 1, backgroundColor: UI_COLORS.appBg },
   header: {
     position: 'absolute',
     top: 0,
@@ -430,12 +434,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 56,
     paddingBottom: 12,
-    backgroundColor: 'rgba(4, 18, 28, 0.9)',
+    backgroundColor: UI_COLORS.panel,
     borderWidth: 1,
-    borderColor: '#1E4E63',
-    borderRadius: 8,
+    borderColor: UI_COLORS.panelBorder,
+    borderRadius: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#1E4E63',
+    borderBottomColor: UI_COLORS.panelBorder,
     zIndex: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -456,13 +460,13 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 20,
     fontWeight: '900',
-    color: '#EAF8FF',
+    color: UI_COLORS.textPrimary,
     marginBottom: 2,
     letterSpacing: 0.3,
   },
   subtext: {
     fontSize: 11,
-    color: '#73AFC9',
+    color: UI_COLORS.textSecondary,
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
@@ -470,12 +474,12 @@ const styles = StyleSheet.create({
   profileInitialCircle: {
     width: 36,
     height: 36,
-    borderRadius: 6,
+    borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0D2838',
+    backgroundColor: UI_COLORS.panelStrong,
     borderWidth: 1,
-    borderColor: '#2A6A86',
+    borderColor: UI_COLORS.panelBorderSoft,
     position: 'relative',
     overflow: 'visible',
   },
@@ -484,10 +488,10 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 6,
-    backgroundColor: '#00D15D',
+    backgroundColor: UI_COLORS.accent,
   },
   profileInitialText: {
-    color: '#D8ECFF',
+    color: UI_COLORS.textPrimary,
     fontSize: 13,
     fontWeight: '800',
     zIndex: 2,
@@ -500,7 +504,7 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 4,
     paddingHorizontal: 4,
-    backgroundColor: '#00D15D',
+    backgroundColor: UI_COLORS.accent,
     borderWidth: 1,
     borderColor: '#06210F',
     alignItems: 'center',
@@ -521,7 +525,7 @@ const styles = StyleSheet.create({
   },
   mapSmall: {
     height: 220,
-    borderRadius: 24,
+    borderRadius: 10,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#2F3A46',
@@ -544,7 +548,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 14,
     backgroundColor: '#000',
-    borderRadius: 8,
+    borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -566,33 +570,33 @@ const styles = StyleSheet.create({
     bottom: 88,
     alignItems: 'center',
     gap: 7,
-    backgroundColor: 'rgba(4, 18, 28, 0.92)',
-    borderRadius: 8,
+    backgroundColor: UI_COLORS.panel,
+    borderRadius: 4,
     paddingVertical: 8,
     paddingHorizontal: 8,
     borderWidth: 1,
-    borderColor: '#1E4E63',
+    borderColor: UI_COLORS.panelBorder,
   },
   btn: {
     width: 42,
     height: 42,
-    borderRadius: 6,
-    backgroundColor: '#0D2838',
+    borderRadius: 4,
+    backgroundColor: UI_COLORS.panelStrong,
     borderWidth: 1,
-    borderColor: '#2A6A86',
+    borderColor: UI_COLORS.panelBorderSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   spotCountBadge: {
-    backgroundColor: '#0A1F2C',
+    backgroundColor: UI_COLORS.panelStrong,
     borderWidth: 1,
-    borderColor: '#255C76',
-    borderRadius: 4,
+    borderColor: UI_COLORS.panelBorderSoft,
+    borderRadius: 3,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
   spotCountText: {
-    color: '#D9F3FF',
+    color: UI_COLORS.textPrimary,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.6,

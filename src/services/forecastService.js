@@ -122,7 +122,7 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
   try {
     const { data } = await supabase
       .from('spot_forecast_hourly')
-      .select('forecast_time, sea_level_height_msl_m, sea_surface_temperature_c, swell_wave_height_m, swell_wave_direction_deg, swell_wave_period_s, wind_speed_ms, wind_wave_direction_deg')
+      .select('forecast_time, sea_level_height_msl_m, sea_surface_temperature_c, wave_height_m, swell_wave_height_m, swell_wave_direction_deg, swell_wave_period_s, wind_speed_ms, wind_wave_direction_deg')
       .eq('provider', 'open-meteo')
       .eq('spot_name', spotName)
       .gte('forecast_time', `${startDate}T00:00:00+13:00`)
@@ -198,6 +198,7 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
       neopreneThickness: neopreneByTemp(avgTemp),
       hourlyData: dayHourly.slice(0, 24).map((h) => {
         // Si las columnas horarias no existen, usar datos diarios como fallback
+        const surfHeight = h.wave_height_m ?? h.swell_wave_height_m ?? primaryHeight;
         const swellHeight = h.swell_wave_height_m ?? primaryHeight;
         const swellPeriod = h.swell_wave_period_s ?? row.swell_wave_period_max_s ?? 10;
         const swellDir = h.swell_wave_direction_deg ?? row.swell_wave_direction_dominant_deg;
@@ -211,11 +212,14 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
             hour12: false, 
             timeZone: NZ_TIMEZONE 
           }),
+          surfHeight: toOneDecimal(surfHeight),
           swellHeight: toOneDecimal(swellHeight),
           swellPeriod: Math.round(Number(swellPeriod)),
           swellDirection: toCardinal(swellDir),
+          swellDirectionDeg: Number.isFinite(Number(swellDir)) ? Math.round(Number(swellDir)) : null,
           windSpeed: Math.round((Number(windSpeedMs) * 1.943844) * 10) / 10,
           windDirection: toCardinal(windDir),
+          windDirectionDeg: Number.isFinite(Number(windDir)) ? Math.round(Number(windDir)) : null,
           waterTemp: Math.round(Number(h.sea_surface_temperature_c || avgTemp)),
         };
       }).filter(h => h.time !== 'Invalid Date') || [],

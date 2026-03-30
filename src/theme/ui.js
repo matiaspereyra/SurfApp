@@ -1,22 +1,22 @@
 export const UI_COLORS = {
-  appBg: '#040A10',
-  panel: 'rgba(9, 22, 33, 0.9)',
-  panelStrong: '#0E1C28',
-  panelBorder: '#2A4A61',
-  panelBorderSoft: '#234055',
-  textPrimary: '#F3FAFF',
-  textSecondary: '#A5BFD1',
-  textMuted: '#86A3B8',
-  accent: '#00D15D',
-  accentText: '#07110B',
-  danger: '#A92727',
-  dangerSoft: '#2E1519',
+  appBg: '#F3F6FA',
+  panel: '#FFFFFF',
+  panelStrong: '#F8FAFC',
+  panelBorder: '#D7DFE7',
+  panelBorderSoft: '#E5EBF1',
+  textPrimary: '#0F172A',
+  textSecondary: '#475569',
+  textMuted: '#64748B',
+  accent: '#111827',
+  accentText: '#FFFFFF',
+  danger: '#B4232F',
+  dangerSoft: '#FEECEF',
 };
 
 export const UI_RADIUS = {
-  sm: 10,
-  md: 14,
-  lg: 18,
+  sm: 6,
+  md: 8,
+  lg: 10,
   pill: 999,
 };
 
