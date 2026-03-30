@@ -65,13 +65,17 @@ export default function SettingsScreen({ authUser, authProfile, onBack, onProfil
         <TouchableOpacity style={styles.backBtn} onPress={onBack}>
           <ChevronLeft color="#FFFFFF" size={22} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <View style={styles.headerTitleWrap}>
+          <Text style={styles.headerTitle}>SETTINGS</Text>
+          <Text style={styles.headerSubtitle}>ACCOUNT PANEL</Text>
+        </View>
         <View style={{ width: 28 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Perfil</Text>
+          <Text style={styles.cardTitle}>PERFIL</Text>
+          <Text style={styles.fieldLabel}>NOMBRE PUBLICO</Text>
           <TextInput
             value={profileName}
             onChangeText={setProfileName}
@@ -79,6 +83,7 @@ export default function SettingsScreen({ authUser, authProfile, onBack, onProfil
             placeholder="Nombre publico"
             placeholderTextColor="#5E6C7A"
           />
+          <Text style={styles.fieldLabel}>CIUDAD BASE</Text>
           <TextInput
             value={profileCity}
             onChangeText={setProfileCity}
@@ -93,7 +98,7 @@ export default function SettingsScreen({ authUser, authProfile, onBack, onProfil
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Sesion</Text>
+          <Text style={styles.cardTitle}>SESION</Text>
           <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} disabled={loggingOut}>
             <Text style={styles.logoutBtnText}>{loggingOut ? 'Cerrando...' : 'Cerrar sesion'}</Text>
           </TouchableOpacity>
@@ -106,7 +111,7 @@ export default function SettingsScreen({ authUser, authProfile, onBack, onProfil
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: UI_COLORS.appBg,
+    backgroundColor: '#02070B',
   },
   atmosphereOne: {
     position: 'absolute',
@@ -115,8 +120,8 @@ const styles = StyleSheet.create({
     width: 280,
     height: 280,
     borderRadius: 140,
-    backgroundColor: '#0F3043',
-    opacity: 0.28,
+    backgroundColor: '#0D3147',
+    opacity: 0.24,
   },
   atmosphereTwo: {
     position: 'absolute',
@@ -125,23 +130,23 @@ const styles = StyleSheet.create({
     width: 300,
     height: 300,
     borderRadius: 150,
-    backgroundColor: '#0A1E2C',
-    opacity: 0.35,
+    backgroundColor: '#0A2436',
+    opacity: 0.3,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginHorizontal: 12,
+    marginHorizontal: 10,
     marginTop: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(8, 20, 30, 0.78)',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(4, 18, 28, 0.9)',
     borderWidth: 1,
-    borderColor: UI_COLORS.panelBorderSoft,
-    borderRadius: UI_RADIUS.md,
+    borderColor: '#1E4E63',
+    borderRadius: 8,
     borderBottomWidth: 1,
-    borderBottomColor: UI_COLORS.panelBorderSoft,
+    borderBottomColor: '#1E4E63',
   },
   backBtn: {
     width: 28,
@@ -149,22 +154,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerTitleWrap: {
+    alignItems: 'center',
+    gap: 2,
+  },
   headerTitle: {
-    color: UI_COLORS.textPrimary,
-    fontSize: 16,
+    color: '#EAF8FF',
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  headerSubtitle: {
+    color: '#73AFC9',
+    fontSize: 9,
     fontWeight: '800',
+    letterSpacing: 0.9,
   },
   scrollContent: {
-    padding: 16,
-    gap: 14,
+    padding: 14,
+    gap: 10,
     paddingBottom: 120,
   },
   card: {
-    backgroundColor: UI_COLORS.panel,
+    backgroundColor: '#061723',
     borderWidth: 1,
-    borderColor: UI_COLORS.panelBorder,
-    borderRadius: UI_RADIUS.md,
-    padding: 13,
+    borderColor: '#1E4E63',
+    borderRadius: 8,
+    padding: 12,
     gap: 9,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 8 },
@@ -173,23 +189,30 @@ const styles = StyleSheet.create({
     elevation: 7,
   },
   cardTitle: {
-    color: UI_COLORS.textPrimary,
-    fontSize: 15,
+    color: '#E8F7FF',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  fieldLabel: {
+    color: '#73AFC9',
+    fontSize: 9,
     fontWeight: '800',
+    letterSpacing: 0.8,
   },
   input: {
     height: 40,
-    backgroundColor: '#0B1620',
+    backgroundColor: '#04111A',
     borderWidth: 1,
-    borderColor: '#2C4A61',
-    borderRadius: UI_RADIUS.sm,
+    borderColor: '#1E4E63',
+    borderRadius: 6,
     paddingHorizontal: 10,
-    color: UI_COLORS.textPrimary,
+    color: '#E6F6FF',
     fontSize: 12,
   },
   saveBtn: {
-    backgroundColor: UI_COLORS.accent,
-    borderRadius: UI_RADIUS.sm,
+    backgroundColor: '#00D15D',
+    borderRadius: 6,
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
@@ -200,15 +223,15 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   msgText: {
-    color: '#9FD8B4',
+    color: '#A8EFC9',
     fontSize: 11,
     fontWeight: '700',
   },
   logoutBtn: {
-    backgroundColor: UI_COLORS.dangerSoft,
+    backgroundColor: '#34121A',
     borderWidth: 1,
-    borderColor: '#7A2B36',
-    borderRadius: UI_RADIUS.sm,
+    borderColor: '#8A3340',
+    borderRadius: 6,
     minHeight: 40,
     justifyContent: 'center',
     alignItems: 'center',

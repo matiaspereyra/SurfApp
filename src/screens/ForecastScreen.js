@@ -396,11 +396,22 @@ export default function ForecastScreen({
               <Text style={styles.liveTag}>LIVE</Text>
             </View>
             <Text style={[styles.height, compact ? styles.heightCompact : null]}>{displaySpot?.height || '--'}</Text>
-            <View style={styles.swellRow}>
-              <Waves size={16} color="#00D15D" />
-              <Text style={styles.swellDetail}>
-                {displayForecast?.[0]?.primarySwell?.height ?? '0.5'}m · {displayForecast?.[0]?.primarySwell?.period ?? '13'}s
-              </Text>
+            <View style={styles.metricsRow}>
+              <View style={styles.metricPill}>
+                <Waves size={14} color="#46D7FF" />
+                <Text style={styles.metricPillLabel}>SWELL</Text>
+                <Text style={styles.metricPillValue}>{displayForecast?.[0]?.primarySwell?.height ?? '0.5'}m</Text>
+              </View>
+              <View style={styles.metricPill}>
+                <Clock size={14} color="#46D7FF" />
+                <Text style={styles.metricPillLabel}>PERIODO</Text>
+                <Text style={styles.metricPillValue}>{displayForecast?.[0]?.primarySwell?.period ?? '13'}s</Text>
+              </View>
+              <View style={styles.metricPill}>
+                <Wind size={14} color="#46D7FF" />
+                <Text style={styles.metricPillLabel}>VIENTO</Text>
+                <Text style={styles.metricPillValue}>{displayForecast?.[0]?.windSpeed ?? '--'}kts</Text>
+              </View>
             </View>
             <Text style={styles.liveHint}>
               {loadingLiveForecast
@@ -424,23 +435,39 @@ export default function ForecastScreen({
               ]}
               onPress={() => openDayDetail(day)}
             >
-              <Text style={styles.dayDayOfWeekLarge}>{day.dayOfWeek}</Text>
-              <Text style={styles.dayDateLarge}>{day.date.substring(5)}</Text>
-
-              <View
-                style={[
-                  styles.ratingBadgeLarge2,
-                  { backgroundColor: SURFLINE_COLORS[day.rating] || SURFLINE_COLORS.FAIR },
-                ]}
-              >
-                <Text style={styles.ratingBadgeLargeText2}>{day.rating}</Text>
+              <View style={styles.dayHeadRow}>
+                <View>
+                  <Text style={styles.dayDayOfWeekLarge}>{day.dayOfWeek}</Text>
+                  <Text style={styles.dayDateLarge}>{day.date.substring(5)}</Text>
+                </View>
+                <View
+                  style={[
+                    styles.ratingBadgeLarge2,
+                    { backgroundColor: SURFLINE_COLORS[day.rating] || SURFLINE_COLORS.FAIR },
+                  ]}
+                >
+                  <Text style={styles.ratingBadgeLargeText2}>{day.rating}</Text>
+                </View>
               </View>
 
               <Text style={styles.dayHeightLarge}>{day.height.min}-{day.height.max}m</Text>
 
-              <View style={styles.swellSmallLarge}>
-                <Waves size={14} color="#00D15D" />
-                <Text style={styles.swellSmallTextLarge}>{day.primarySwell.height}m</Text>
+              <View style={styles.dataRowLine}>
+                <Text style={styles.dataKey}>SWELL</Text>
+                <Text style={styles.dataValue}>{day.primarySwell.height}m @ {day.primarySwell.period}s</Text>
+              </View>
+
+              <View style={styles.dataRowLine}>
+                <Text style={styles.dataKey}>VIENTO</Text>
+                <Text style={styles.dataValue}>{day.windSpeed}kts {day.windDirection}</Text>
+              </View>
+
+              <View style={styles.dataRowLine}>
+                <Text style={styles.dataKey}>AGUA</Text>
+                <View style={styles.inlineMetric}>
+                  <Thermometer size={12} color="#46D7FF" />
+                  <Text style={styles.dataValue}>{day.waterTemp}°C</Text>
+                </View>
               </View>
             </TouchableOpacity>
           ))}
@@ -481,7 +508,7 @@ export default function ForecastScreen({
 
 const styles = StyleSheet.create({
   // Container
-  container: { flex: 1, backgroundColor: '#040A10' },
+  container: { flex: 1, backgroundColor: '#02070B' },
   atmosphereOne: {
     position: 'absolute',
     top: -140,
@@ -489,8 +516,8 @@ const styles = StyleSheet.create({
     width: 320,
     height: 320,
     borderRadius: 160,
-    backgroundColor: '#0F2F42',
-    opacity: 0.35,
+    backgroundColor: '#0D3147',
+    opacity: 0.28,
   },
   atmosphereTwo: {
     position: 'absolute',
@@ -499,25 +526,25 @@ const styles = StyleSheet.create({
     width: 360,
     height: 360,
     borderRadius: 180,
-    backgroundColor: '#0A1F2D',
-    opacity: 0.45,
+    backgroundColor: '#0A2436',
+    opacity: 0.38,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginHorizontal: 12,
+    marginHorizontal: 10,
     marginTop: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#234055',
+    borderBottomColor: '#1E4E63',
     alignItems: 'center',
-    backgroundColor: 'rgba(8, 20, 30, 0.75)',
-    borderRadius: 14,
+    backgroundColor: 'rgba(4, 18, 28, 0.9)',
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#234055',
+    borderColor: '#1E4E63',
   },
-  headerTitle: { color: '#F3FAFF', fontSize: 18, fontWeight: '800' },
+  headerTitle: { color: '#EAF8FF', fontSize: 17, fontWeight: '900', letterSpacing: 0.3 },
   headerTitleCompact: { fontSize: 16 },
   backButton: { padding: 6 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -527,22 +554,22 @@ const styles = StyleSheet.create({
   // Hero
   hero: {
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingTop: 20,
+    paddingHorizontal: 12,
+    paddingTop: 18,
     paddingBottom: 8,
   },
   heroCard: {
     width: '100%',
-    borderRadius: 18,
-    paddingVertical: 18,
+    borderRadius: 8,
+    paddingVertical: 16,
     paddingHorizontal: 16,
     alignItems: 'center',
-    backgroundColor: 'rgba(9, 23, 33, 0.88)',
+    backgroundColor: '#061723',
     borderWidth: 1,
-    borderColor: '#274A61',
+    borderColor: '#1E4E63',
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.28,
+    shadowOpacity: 0.32,
     shadowRadius: 12,
     elevation: 8,
   },
@@ -557,10 +584,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   ratingBadge: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 4,
-    marginBottom: 12,
+    borderRadius: 2,
+    marginBottom: 14,
   },
   ratingText: {
     color: '#000',
@@ -569,39 +596,66 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   liveTag: {
-    color: '#95E9BF',
+    color: '#8CF1B9',
     fontSize: 10,
     fontWeight: '800',
     borderWidth: 1,
-    borderColor: '#2D6A4B',
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    backgroundColor: '#113022',
-    letterSpacing: 0.5,
+    borderColor: '#2A7652',
+    borderRadius: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    backgroundColor: '#123425',
+    letterSpacing: 0.8,
   },
   height: {
     color: '#FFFFFF',
-    fontSize: 68,
+    fontSize: 64,
     fontWeight: '900',
-    letterSpacing: -2,
+    letterSpacing: -1.5,
   },
   heightCompact: {
     fontSize: 56,
   },
-  swellRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 },
-  swellDetail: { color: '#00D15D', fontSize: 16, fontWeight: '600' },
-  liveHint: { color: '#A7C0D3', fontSize: 12, marginTop: 8 },
+  metricsRow: {
+    marginTop: 10,
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  metricPill: {
+    flex: 1,
+    backgroundColor: '#04111A',
+    borderWidth: 1,
+    borderColor: '#18445A',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    gap: 3,
+  },
+  metricPillLabel: {
+    color: '#5F8DA5',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+  },
+  metricPillValue: {
+    color: '#DBF4FF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  liveHint: { color: '#9DB8CA', fontSize: 12, marginTop: 10 },
 
   // Forecast Grid (3 columns)
   sectionTitle: {
-    color: '#9EB9CC',
+    color: '#7EB3CB',
     fontSize: 11,
     fontWeight: '900',
     paddingHorizontal: 18,
-    marginTop: 25,
+    marginTop: 22,
     marginBottom: 15,
-    letterSpacing: 1,
+    letterSpacing: 1.1,
     textTransform: 'uppercase',
   },
   sectionTitleCompact: {
@@ -612,38 +666,66 @@ const styles = StyleSheet.create({
   forecastGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     gap: 8,
     marginBottom: 20,
   },
   dayCardLarge: {
     flex: 1,
     minWidth: '30%',
-    padding: 14,
-    borderRadius: 10,
+    padding: 12,
+    borderRadius: 6,
     borderWidth: 1,
-    backgroundColor: '#0C1A25',
+    backgroundColor: '#06131D',
     justifyContent: 'flex-start',
-    aspectRatio: 0.85,
+    aspectRatio: 0.9,
+  },
+  dayHeadRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 6,
   },
   dayDayOfWeekLarge: { color: 'white', fontSize: 12, fontWeight: 'bold', marginBottom: 2 },
-  dayDateLarge: { color: '#8E9196', fontSize: 10, marginBottom: 12 },
+  dayDateLarge: { color: '#7B92A3', fontSize: 10 },
   ratingBadgeLarge2: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 2,
     alignSelf: 'flex-start',
-    marginBottom: 10,
   },
   ratingBadgeLargeText2: {
     color: '#000',
     fontWeight: '900',
-    fontSize: 9,
+    fontSize: 8,
     textTransform: 'uppercase',
   },
-  dayHeightLarge: { color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
-  swellSmallLarge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  swellSmallTextLarge: { color: '#00D15D', fontSize: 11, fontWeight: '600' },
+  dayHeightLarge: { color: 'white', fontSize: 20, fontWeight: '900', marginBottom: 8 },
+  dataRowLine: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#113142',
+    paddingTop: 6,
+    marginTop: 6,
+  },
+  dataKey: {
+    color: '#6E8CA0',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  dataValue: {
+    color: '#CFE9F6',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  inlineMetric: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   emptyForecastText: { color: '#8EA2B8', fontSize: 13, paddingHorizontal: 8, paddingVertical: 8 },
 
   // Today Summary
@@ -654,11 +736,11 @@ const styles = StyleSheet.create({
   todayRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(8, 20, 30, 0.78)',
+    backgroundColor: '#061723',
     borderWidth: 1,
-    borderColor: '#264258',
-    borderRadius: 14,
-    paddingVertical: 14,
+    borderColor: '#1E4E63',
+    borderRadius: 8,
+    paddingVertical: 12,
     paddingHorizontal: 8,
   },
   todayItem: {
@@ -666,7 +748,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   todayLabel: {
-    color: '#8E9196',
+    color: '#6E8CA0',
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 1,
@@ -674,9 +756,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   todayValue: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
+    color: '#E7F7FF',
+    fontSize: 17,
+    fontWeight: '900',
   },
 
   // Modal
