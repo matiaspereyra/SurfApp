@@ -14,7 +14,9 @@ const { width, height } = Dimensions.get('window');
 
 // Color para velocidad de viento
 const getWindColorBg = (windSpeed) => {
-  const speed = Number(windSpeed) || 0;
+  const speed = Number(windSpeed);
+  // Return neutral if invalid
+  if (isNaN(speed) || windSpeed === null || windSpeed === undefined) return '#1f2937'; // Gray neutral
   if (speed < 15) return '#15803D'; // Verde bajo
   if (speed < 25) return '#EA8C00'; // Naranja moderado
   return '#DC2626'; // Rojo fuerte
@@ -434,8 +436,10 @@ export default function ForecastScreen({
         {/* Hourly Forecast Table for Today */}
         <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>HOY - PRONÓSTICO POR HORA</Text>
         
-        {!hasLiveForecast || !displayForecast[0]?.hourlyData?.length ? (
-          <Text style={styles.emptyForecastText}>No hay datos horarios disponibles para hoy.</Text>
+        {!hasLiveForecast || !displayForecast?.[0] ? (
+          <Text style={styles.emptyForecastText}>Sin datos de forecast disponibles.</Text>
+        ) : !Array.isArray(displayForecast[0].hourlyData) || displayForecast[0].hourlyData.length === 0 ? (
+          <Text style={styles.emptyForecastText}>No hay datos horarios disponibles. Mostrando sumario diario.</Text>
         ) : (
           <ScrollView 
             horizontal 
@@ -457,18 +461,20 @@ export default function ForecastScreen({
               {/* Data Rows */}
               {displayForecast[0].hourlyData.map((hour, idx) => (
                 <View 
-                  key={idx}
+                  key={`${hour.time}-${idx}`}
                   style={styles.tableDataRow}
                 >
-                  <Text style={[styles.tableCell, styles.tableCellDay, styles.tableHourText]}>{hour.time}</Text>
-                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {hour.swellHeight}<Text style={styles.unitSmall}>m</Text>
+                  <Text style={[styles.tableCell, styles.tableCellDay, styles.tableHourText]}>
+                    {hour.time || '--:--'}
                   </Text>
                   <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {hour.swellPeriod}<Text style={styles.unitSmall}>s</Text>
+                    {hour.swellHeight ?? '--'}<Text style={styles.unitSmall}>m</Text>
                   </Text>
                   <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {hour.swellDirection}
+                    {hour.swellPeriod ?? '--'}<Text style={styles.unitSmall}>s</Text>
+                  </Text>
+                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
+                    {hour.swellDirection ?? '--'}
                   </Text>
                   <View 
                     style={[
@@ -478,11 +484,11 @@ export default function ForecastScreen({
                       { backgroundColor: getWindColorBg(hour.windSpeed) }
                     ]}
                   >
-                    <Text style={styles.windSpeedText}>{hour.windSpeed}</Text>
+                    <Text style={styles.windSpeedText}>{hour.windSpeed ?? '--'}</Text>
                     <Text style={styles.unitSmall}>kts</Text>
                   </View>
                   <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {hour.waterTemp}<Text style={styles.unitSmall}>°C</Text>
+                    {hour.waterTemp ?? '--'}<Text style={styles.unitSmall}>°C</Text>
                   </Text>
                 </View>
               ))}
@@ -570,6 +576,7 @@ export default function ForecastScreen({
         spot={spot}
         onClose={() => setModalVisible(false)}
       />
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
