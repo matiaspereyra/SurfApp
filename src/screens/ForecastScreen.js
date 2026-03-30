@@ -12,6 +12,14 @@ import { isCompactLayout } from '../theme/ui';
 
 const { width, height } = Dimensions.get('window');
 
+// Color para velocidad de viento
+const getWindColorBg = (windSpeed) => {
+  const speed = Number(windSpeed) || 0;
+  if (speed < 15) return '#15803D'; // Verde bajo
+  if (speed < 25) return '#EA8C00'; // Naranja moderado
+  return '#DC2626'; // Rojo fuerte
+};
+
 // Función para convertir dirección a ángulo (invierte para mostrar hacia dónde va, no de dónde viene)
 const getDirectionAngle = (direction) => {
   const directions = {
@@ -423,57 +431,78 @@ export default function ForecastScreen({
           </View>
         </View>
 
-        {/* 16-Day Forecast - 3 Days per Row */}
+        {/* 16-Day Forecast Table */}
         <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>PRONÓSTICO 16 DÍAS</Text>
-        <View style={styles.forecastGrid}>
-          {displayForecast.slice(0, 12).map((day, idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={[
-                styles.dayCardLarge,
-                { borderColor: SURFLINE_COLORS[day.rating] || SURFLINE_COLORS.FAIR },
-              ]}
-              onPress={() => openDayDetail(day)}
-            >
-              <View style={styles.dayHeadRow}>
-                <View>
-                  <Text style={styles.dayDayOfWeekLarge}>{day.dayOfWeek}</Text>
-                  <Text style={styles.dayDateLarge}>{day.date.substring(5)}</Text>
-                </View>
-                <View
-                  style={[
-                    styles.ratingBadgeLarge2,
-                    { backgroundColor: SURFLINE_COLORS[day.rating] || SURFLINE_COLORS.FAIR },
-                  ]}
+        
+        {!hasLiveForecast ? (
+          <Text style={styles.emptyForecastText}>No hay datos reales cargados todavía para este spot.</Text>
+        ) : (
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.tableContainer}
+            contentContainerStyle={styles.tableContent}
+          >
+            <View style={styles.forecastTable}>
+              {/* Header Row */}
+              <View style={styles.tableHeaderRow}>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellDay]}>DÍA</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>ALTURA</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>SWELL</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>PERÍODO</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>DIR</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>VIENTO</Text>
+              </View>
+              
+              {/* Data Rows */}
+              {displayForecast.slice(0, 16).map((day, idx) => (
+                <TouchableOpacity 
+                  key={idx}
+                  style={styles.tableDataRow}
+                  onPress={() => openDayDetail(day)}
+                  activeOpacity={0.6}
                 >
-                  <Text style={styles.ratingBadgeLargeText2}>{day.rating}</Text>
-                </View>
-              </View>
-
-              <Text style={styles.dayHeightLarge}>{day.height.min}-{day.height.max}m</Text>
-
-              <View style={styles.dataRowLine}>
-                <Text style={styles.dataKey}>SWELL</Text>
-                <Text style={styles.dataValue}>{day.primarySwell.height}m @ {day.primarySwell.period}s</Text>
-              </View>
-
-              <View style={styles.dataRowLine}>
-                <Text style={styles.dataKey}>VIENTO</Text>
-                <Text style={styles.dataValue}>{day.windSpeed}kts {day.windDirection}</Text>
-              </View>
-
-              <View style={styles.dataRowLine}>
-                <Text style={styles.dataKey}>AGUA</Text>
-                <View style={styles.inlineMetric}>
-                  <Thermometer size={12} color="#46D7FF" />
-                  <Text style={styles.dataValue}>{day.waterTemp}°C</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
-
-          {!hasLiveForecast ? <Text style={styles.emptyForecastText}>No hay datos reales cargados todavía para este spot.</Text> : null}
-        </View>
+                  <View style={[styles.tableCell, styles.tableCellDay]}>
+                    <Text style={styles.tableDayText}>{day.dayOfWeek.substring(0, 3)}</Text>
+                    <Text style={styles.tableDateText}>{day.date.substring(5)}</Text>
+                  </View>
+                  <View style={[styles.tableCell, styles.tableCellMetric]}>
+                    <View 
+                      style={[
+                        styles.ratingPill,
+                        { backgroundColor: SURFLINE_COLORS[day.rating] || SURFLINE_COLORS.FAIR }
+                      ]}>
+                      <Text style={styles.ratingPillText}>{day.rating}</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
+                    {day.height.min}-{day.height.max}<Text style={styles.unitSmall}>m</Text>
+                  </Text>
+                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
+                    {day.primarySwell.height}<Text style={styles.unitSmall}>m</Text>
+                  </Text>
+                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
+                    {day.primarySwell.period}<Text style={styles.unitSmall}>s</Text>
+                  </Text>
+                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
+                    {day.windDirection}
+                  </Text>
+                  <View 
+                    style={[
+                      styles.tableCell, 
+                      styles.tableCellMetric, 
+                      styles.windSpeedCell,
+                      { backgroundColor: getWindColorBg(day.windSpeed) }
+                    ]}
+                  >
+                    <Text style={styles.windSpeedText}>{day.windSpeed}</Text>
+                    <Text style={styles.unitSmall}>kts</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        )}
 
         {/* Simple Summary Section */}
         <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>HOY</Text>
@@ -647,84 +676,103 @@ const styles = StyleSheet.create({
   },
   liveHint: { color: '#9DB8CA', fontSize: 12, marginTop: 10 },
 
-  // Forecast Grid (3 columns)
+  // Forecast Table (Horizontal)
   sectionTitle: {
     color: '#7EB3CB',
     fontSize: 11,
     fontWeight: '900',
     paddingHorizontal: 18,
     marginTop: 22,
-    marginBottom: 15,
+    marginBottom: 12,
     letterSpacing: 1.1,
     textTransform: 'uppercase',
   },
   sectionTitleCompact: {
     marginTop: 18,
-    marginBottom: 12,
+    marginBottom: 10,
     fontSize: 10,
   },
-  forecastGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
-    gap: 8,
-    marginBottom: 20,
+  tableContainer: {
+    marginHorizontal: 12,
+    marginBottom: 24,
   },
-  dayCardLarge: {
-    flex: 1,
-    minWidth: '30%',
-    padding: 12,
+  tableContent: {
+    paddingRight: 12,
+  },
+  forecastTable: {
     borderRadius: 6,
+    overflow: 'hidden',
     borderWidth: 1,
-    backgroundColor: '#06131D',
-    justifyContent: 'flex-start',
-    aspectRatio: 0.9,
+    borderColor: '#1E4E63',
+    backgroundColor: '#04111A',
   },
-  dayHeadRow: {
+  tableHeaderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 6,
+    backgroundColor: '#0D2B3A',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E4E63',
   },
-  dayDayOfWeekLarge: { color: 'white', fontSize: 12, fontWeight: 'bold', marginBottom: 2 },
-  dayDateLarge: { color: '#7B92A3', fontSize: 10 },
-  ratingBadgeLarge2: {
-    paddingHorizontal: 7,
+  tableDataRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#113142',
+    paddingVertical: 0,
+  },
+  tableCell: {
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tableCellDay: {
+    minWidth: 58,
+  },
+  tableCellMetric: {
+    minWidth: 64,
+  },
+  tableHeader: {
+    color: '#7EB3CB',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.9,
+  },
+  tableDayText: {
+    color: '#E5F6FF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  tableDateText: {
+    color: '#7B92A3',
+    fontSize: 9,
+  },
+  ratingPill: {
+    paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 2,
-    alignSelf: 'flex-start',
   },
-  ratingBadgeLargeText2: {
+  ratingPillText: {
     color: '#000',
-    fontWeight: '900',
     fontSize: 8,
-    textTransform: 'uppercase',
+    fontWeight: '900',
   },
-  dayHeightLarge: { color: 'white', fontSize: 20, fontWeight: '900', marginBottom: 8 },
-  dataRowLine: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#113142',
-    paddingTop: 6,
-    marginTop: 6,
-  },
-  dataKey: {
-    color: '#6E8CA0',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  dataValue: {
-    color: '#CFE9F6',
-    fontSize: 11,
+  metricValue: {
+    color: '#D2EAF7',
+    fontSize: 12,
     fontWeight: '700',
   },
-  inlineMetric: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+  unitSmall: {
+    color: '#8FB0C4',
+    fontSize: 9,
+    fontWeight: '600',
+  },
+  windSpeedCell: {
+    minWidth: 70,
+    borderRadius: 0,
+  },
+  windSpeedText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
   },
   emptyForecastText: { color: '#8EA2B8', fontSize: 13, paddingHorizontal: 8, paddingVertical: 8 },
 
