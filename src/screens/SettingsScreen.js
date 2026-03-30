@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 
 import { ChevronLeft } from 'lucide-react-native';
 import { updateUserProfile } from '../services/profileService';
 import { signOutUser } from '../services/authService';
+import { UI_COLORS, UI_RADIUS } from '../theme/ui';
 
 export default function SettingsScreen({ authUser, authProfile, onBack, onProfileUpdated }) {
   const [profileName, setProfileName] = useState(authProfile?.display_name || '');
@@ -57,6 +58,9 @@ export default function SettingsScreen({ authUser, authProfile, onBack, onProfil
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.atmosphereOne} pointerEvents="none" />
+      <View style={styles.atmosphereTwo} pointerEvents="none" />
+
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={onBack}>
           <ChevronLeft color="#FFFFFF" size={22} />
@@ -102,16 +106,42 @@ export default function SettingsScreen({ authUser, authProfile, onBack, onProfil
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#050B12',
+    backgroundColor: UI_COLORS.appBg,
+  },
+  atmosphereOne: {
+    position: 'absolute',
+    top: -120,
+    right: -80,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: '#0F3043',
+    opacity: 0.28,
+  },
+  atmosphereTwo: {
+    position: 'absolute',
+    bottom: -130,
+    left: -100,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: '#0A1E2C',
+    opacity: 0.35,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
+    marginHorizontal: 12,
+    marginTop: 8,
+    paddingHorizontal: 12,
     paddingVertical: 12,
+    backgroundColor: 'rgba(8, 20, 30, 0.78)',
+    borderWidth: 1,
+    borderColor: UI_COLORS.panelBorderSoft,
+    borderRadius: UI_RADIUS.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A2634',
+    borderBottomColor: UI_COLORS.panelBorderSoft,
   },
   backBtn: {
     width: 28,
@@ -120,7 +150,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {
-    color: '#FFFFFF',
+    color: UI_COLORS.textPrimary,
     fontSize: 16,
     fontWeight: '800',
   },
@@ -130,50 +160,62 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
   },
   card: {
-    backgroundColor: '#111923',
+    backgroundColor: UI_COLORS.panel,
     borderWidth: 1,
-    borderColor: '#253548',
-    borderRadius: 14,
-    padding: 12,
+    borderColor: UI_COLORS.panelBorder,
+    borderRadius: UI_RADIUS.md,
+    padding: 13,
     gap: 9,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 7,
   },
   cardTitle: {
-    color: '#FFFFFF',
+    color: UI_COLORS.textPrimary,
     fontSize: 15,
     fontWeight: '800',
   },
   input: {
     height: 40,
-    backgroundColor: '#0B1219',
+    backgroundColor: '#0B1620',
     borderWidth: 1,
-    borderColor: '#243444',
-    borderRadius: 9,
+    borderColor: '#2C4A61',
+    borderRadius: UI_RADIUS.sm,
     paddingHorizontal: 10,
-    color: '#FFFFFF',
+    color: UI_COLORS.textPrimary,
     fontSize: 12,
   },
   saveBtn: {
-    backgroundColor: '#00D15D',
-    borderRadius: 9,
+    backgroundColor: UI_COLORS.accent,
+    borderRadius: UI_RADIUS.sm,
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
   },
   saveBtnText: {
-    color: '#001108',
+    color: UI_COLORS.accentText,
     fontSize: 12,
     fontWeight: '800',
   },
-  ratingPillOn: {
-    backgroundColor: '#00D15D',
-    borderColor: '#00D15D',
-  },
-  ratingText: {
-    color: '#9FB3C8',
+  msgText: {
+    color: '#9FD8B4',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '700',
   },
-  ratingTextOn: {
-    color: '#07110B',
+  logoutBtn: {
+    backgroundColor: UI_COLORS.dangerSoft,
+    borderWidth: 1,
+    borderColor: '#7A2B36',
+    borderRadius: UI_RADIUS.sm,
+    minHeight: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoutBtnText: {
+    color: '#FFC7D0',
+    fontSize: 12,
+    fontWeight: '800',
   },
 });

@@ -1,20 +1,36 @@
 import React from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StyleSheet, Text, View } from 'react-native';
+import { UI_COLORS, UI_RADIUS, UI_SPACE, UI_TYPE } from '../theme/ui';
 
 export default function AdminScreen() {
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.atmosphereOne} pointerEvents="none" />
+
       <View style={styles.header}>
         <Text style={styles.title}>Admin Panel</Text>
         <Text style={styles.subtitle}>Gestion interna de spots y calibracion</Text>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Herramientas</Text>
+        <Text style={styles.cardTitle}>Centro Operativo</Text>
         <Text style={styles.cardText}>Pronto: calibracion de markers por spot.</Text>
         <Text style={styles.cardText}>Pronto: activar o pausar spots para ingesta de forecast.</Text>
         <Text style={styles.cardText}>Pronto: prioridad de spots para refresco.</Text>
+      </View>
+
+      <View style={styles.cardRow}>
+        <View style={[styles.miniCard, styles.miniCardLeft]}>
+          <Text style={styles.miniLabel}>PUSH</Text>
+          <Text style={styles.miniValue}>Alertas</Text>
+          <Text style={styles.miniHint}>Estado y límites</Text>
+        </View>
+        <View style={[styles.miniCard, styles.miniCardRight]}>
+          <Text style={styles.miniLabel}>FORECAST</Text>
+          <Text style={styles.miniValue}>Runs</Text>
+          <Text style={styles.miniHint}>Prioridad spots</Text>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -23,39 +39,95 @@ export default function AdminScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#050B12',
-    paddingHorizontal: 16,
+    backgroundColor: UI_COLORS.appBg,
+    paddingHorizontal: UI_SPACE.md,
     paddingTop: 6,
   },
+  atmosphereOne: {
+    position: 'absolute',
+    top: -130,
+    right: -90,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: '#0F3144',
+    opacity: 0.28,
+  },
   header: {
-    paddingVertical: 10,
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(8, 20, 30, 0.78)',
+    borderWidth: 1,
+    borderColor: UI_COLORS.panelBorderSoft,
+    borderRadius: UI_RADIUS.md,
   },
   title: {
-    color: '#FFFFFF',
-    fontSize: 24,
+    color: UI_COLORS.textPrimary,
+    fontSize: UI_TYPE.titleLg,
     fontWeight: '900',
   },
   subtitle: {
-    color: '#8EA2B8',
-    fontSize: 12,
+    color: UI_COLORS.textSecondary,
+    fontSize: UI_TYPE.bodySm,
     marginTop: 3,
   },
   card: {
     marginTop: 14,
-    backgroundColor: '#111923',
+    backgroundColor: UI_COLORS.panel,
     borderWidth: 1,
-    borderColor: '#253548',
-    borderRadius: 14,
+    borderColor: UI_COLORS.panelBorder,
+    borderRadius: UI_RADIUS.md,
     padding: 14,
     gap: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 7,
   },
   cardTitle: {
-    color: '#EAF2FB',
-    fontSize: 15,
+    color: UI_COLORS.textPrimary,
+    fontSize: UI_TYPE.bodyMd,
     fontWeight: '800',
   },
   cardText: {
-    color: '#B7C8D9',
-    fontSize: 13,
+    color: UI_COLORS.textSecondary,
+    fontSize: UI_TYPE.bodySm,
+  },
+  cardRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  miniCard: {
+    flex: 1,
+    borderRadius: UI_RADIUS.md,
+    borderWidth: 1,
+    padding: 12,
+    gap: 4,
+  },
+  miniCardLeft: {
+    backgroundColor: '#102432',
+    borderColor: '#325A72',
+  },
+  miniCardRight: {
+    backgroundColor: '#132231',
+    borderColor: '#2F536A',
+  },
+  miniLabel: {
+    color: '#8FB7D4',
+    fontSize: UI_TYPE.caption,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  miniValue: {
+    color: UI_COLORS.textPrimary,
+    fontSize: UI_TYPE.titleMd,
+    fontWeight: '800',
+  },
+  miniHint: {
+    color: UI_COLORS.textMuted,
+    fontSize: UI_TYPE.caption,
   },
 });

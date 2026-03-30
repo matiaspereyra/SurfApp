@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet, Text, View, ScrollView, TouchableOpacity, Dimensions,
-  Animated, Modal, PanResponder
+  Animated, Modal, PanResponder, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Wind, Waves, Thermometer, Clock, X, ArrowUp, Heart, Bell } from 'lucide-react-native';
 import { SURFLINE_COLORS, getSpotShowName } from '../constants/Spots';
 import { fetchSpotForecastByName } from '../services/forecastService';
 import { getAlertRule, upsertAlertRule } from '../services/alertRuleService';
+import { isCompactLayout } from '../theme/ui';
 
 const { width, height } = Dimensions.get('window');
 
@@ -229,6 +230,8 @@ export default function ForecastScreen({
   const [isSpotAlertOn, setIsSpotAlertOn] = useState(false);
   const [savingSpotAlert, setSavingSpotAlert] = useState(false);
   const contentOpacity = useRef(new Animated.Value(0)).current;
+  const { width: screenWidth } = useWindowDimensions();
+  const compact = isCompactLayout(screenWidth);
 
   useEffect(() => {
     Animated.timing(contentOpacity, {
@@ -339,12 +342,15 @@ export default function ForecastScreen({
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.atmosphereOne} pointerEvents="none" />
+      <View style={styles.atmosphereTwo} pointerEvents="none" />
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <ChevronLeft color="white" size={28} />
         </TouchableOpacity>
-          <Text style={styles.headerTitle}>{getSpotShowName(spot)}</Text>
+          <Text style={[styles.headerTitle, compact ? styles.headerTitleCompact : null]}>{getSpotShowName(spot)}</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity
             onPress={handleToggleSpotAlert}
@@ -377,21 +383,25 @@ export default function ForecastScreen({
       >
         {/* Hero Section */}
         <View style={styles.hero}>
-          <View
-            style={[
-              styles.ratingBadge,
-              { backgroundColor: heroColor },
-            ]}
-          >
-              <Text style={styles.ratingText}>{displaySpot?.rating || '--'}</Text>
-          </View>
-            <Text style={styles.height}>{displaySpot?.height || '--'}</Text>
-          <View style={styles.swellRow}>
-            <Waves size={16} color="#00D15D" />
-            <Text style={styles.swellDetail}>
-              {displayForecast?.[0]?.primarySwell?.height ?? '0.5'}m · {displayForecast?.[0]?.primarySwell?.period ?? '13'}s
-            </Text>
-          </View>
+          <View style={[styles.heroCard, compact ? styles.heroCardCompact : null]}>
+            <View style={styles.heroTopRow}>
+              <View
+                style={[
+                  styles.ratingBadge,
+                  { backgroundColor: heroColor },
+                ]}
+              >
+                <Text style={styles.ratingText}>{displaySpot?.rating || '--'}</Text>
+              </View>
+              <Text style={styles.liveTag}>LIVE</Text>
+            </View>
+            <Text style={[styles.height, compact ? styles.heightCompact : null]}>{displaySpot?.height || '--'}</Text>
+            <View style={styles.swellRow}>
+              <Waves size={16} color="#00D15D" />
+              <Text style={styles.swellDetail}>
+                {displayForecast?.[0]?.primarySwell?.height ?? '0.5'}m · {displayForecast?.[0]?.primarySwell?.period ?? '13'}s
+              </Text>
+            </View>
             <Text style={styles.liveHint}>
               {loadingLiveForecast
                 ? 'Actualizando forecast real...'
@@ -399,10 +409,11 @@ export default function ForecastScreen({
                   ? 'Forecast real activo'
                   : 'Sin forecast real disponible para este spot'}
             </Text>
+          </View>
         </View>
 
         {/* 16-Day Forecast - 3 Days per Row */}
-        <Text style={styles.sectionTitle}>PRONÓSTICO 16 DÍAS</Text>
+        <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>PRONÓSTICO 16 DÍAS</Text>
         <View style={styles.forecastGrid}>
           {displayForecast.slice(0, 12).map((day, idx) => (
             <TouchableOpacity
@@ -438,7 +449,7 @@ export default function ForecastScreen({
         </View>
 
         {/* Simple Summary Section */}
-        <Text style={styles.sectionTitle}>HOY</Text>
+        <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>HOY</Text>
         <View style={styles.todaySummary}>
           <View style={styles.todayRow}>
             <View style={styles.todayItem}>
@@ -470,26 +481,80 @@ export default function ForecastScreen({
 
 const styles = StyleSheet.create({
   // Container
-  container: { flex: 1, backgroundColor: '#050B12' },
+  container: { flex: 1, backgroundColor: '#040A10' },
+  atmosphereOne: {
+    position: 'absolute',
+    top: -140,
+    right: -90,
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    backgroundColor: '#0F2F42',
+    opacity: 0.35,
+  },
+  atmosphereTwo: {
+    position: 'absolute',
+    bottom: -180,
+    left: -120,
+    width: 360,
+    height: 360,
+    borderRadius: 180,
+    backgroundColor: '#0A1F2D',
+    opacity: 0.45,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 16,
+    marginHorizontal: 12,
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A1F26',
+    borderBottomColor: '#234055',
     alignItems: 'center',
+    backgroundColor: 'rgba(8, 20, 30, 0.75)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#234055',
   },
-  headerTitle: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+  headerTitle: { color: '#F3FAFF', fontSize: 18, fontWeight: '800' },
+  headerTitleCompact: { fontSize: 16 },
   backButton: { padding: 6 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   actionButton: { padding: 6, minWidth: 28, alignItems: 'center' },
-  scroll: { paddingBottom: 40 },
+  scroll: { paddingBottom: 48 },
 
   // Hero
   hero: {
     alignItems: 'center',
-    paddingVertical: 30,
-    backgroundColor: '#080E16',
+    paddingHorizontal: 14,
+    paddingTop: 20,
+    paddingBottom: 8,
+  },
+  heroCard: {
+    width: '100%',
+    borderRadius: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    backgroundColor: 'rgba(9, 23, 33, 0.88)',
+    borderWidth: 1,
+    borderColor: '#274A61',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  heroCardCompact: {
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  heroTopRow: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   ratingBadge: {
     paddingHorizontal: 12,
@@ -503,31 +568,51 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textTransform: 'uppercase',
   },
+  liveTag: {
+    color: '#95E9BF',
+    fontSize: 10,
+    fontWeight: '800',
+    borderWidth: 1,
+    borderColor: '#2D6A4B',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    backgroundColor: '#113022',
+    letterSpacing: 0.5,
+  },
   height: {
-    color: 'white',
-    fontSize: 72,
+    color: '#FFFFFF',
+    fontSize: 68,
     fontWeight: '900',
     letterSpacing: -2,
   },
+  heightCompact: {
+    fontSize: 56,
+  },
   swellRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 },
   swellDetail: { color: '#00D15D', fontSize: 16, fontWeight: '600' },
-  liveHint: { color: '#8EA2B8', fontSize: 12, marginTop: 8 },
+  liveHint: { color: '#A7C0D3', fontSize: 12, marginTop: 8 },
 
   // Forecast Grid (3 columns)
   sectionTitle: {
-    color: '#8E9196',
+    color: '#9EB9CC',
     fontSize: 11,
     fontWeight: '900',
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     marginTop: 25,
     marginBottom: 15,
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
+  sectionTitleCompact: {
+    marginTop: 18,
+    marginBottom: 12,
+    fontSize: 10,
+  },
   forecastGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     gap: 8,
     marginBottom: 20,
   },
@@ -537,7 +622,7 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 10,
     borderWidth: 1,
-    backgroundColor: '#0A0F16',
+    backgroundColor: '#0C1A25',
     justifyContent: 'flex-start',
     aspectRatio: 0.85,
   },
@@ -563,12 +648,18 @@ const styles = StyleSheet.create({
 
   // Today Summary
   todaySummary: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 14,
     marginBottom: 30,
   },
   todayRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(8, 20, 30, 0.78)',
+    borderWidth: 1,
+    borderColor: '#264258',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
   },
   todayItem: {
     alignItems: 'center',

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Animated, PanResponder, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, PanResponder, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Heart, MapPin } from 'lucide-react-native';
 import { NZ_SPOTS, getSpotShowName } from '../constants/Spots';
+import { UI_COLORS, UI_RADIUS, isCompactLayout } from '../theme/ui';
 
 const SWIPE_OPEN_X = -96;
 const SWIPE_OPEN_THRESHOLD = -48;
@@ -89,6 +90,9 @@ function FavoriteSpotRow({ spot, isOpen, onRequestOpen, onRequestClose, onOpenSp
 
 export default function FavoritesScreen({ favoriteSpotNames = [], onOpenSpot, onRemoveFavorite = () => {} }) {
   const [openSpotName, setOpenSpotName] = useState('');
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  const { width } = useWindowDimensions();
+  const compact = isCompactLayout(width);
 
   const favorites = useMemo(
     () => NZ_SPOTS.filter((spot) => favoriteSpotNames.includes(spot.name)),
@@ -102,14 +106,24 @@ export default function FavoritesScreen({ favoriteSpotNames = [], onOpenSpot, on
     }
   }, [favoriteSpotNames, openSpotName]);
 
+  useEffect(() => {
+    Animated.timing(contentOpacity, {
+      toValue: 1,
+      duration: 260,
+      useNativeDriver: true,
+    }).start();
+  }, [contentOpacity]);
+
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Favoritos</Text>
+      <View style={styles.atmosphereOne} pointerEvents="none" />
+
+      <View style={[styles.header, compact ? styles.headerCompact : null]}>
+        <Text style={[styles.title, compact ? styles.titleCompact : null]}>Favoritos</Text>
         <Text style={styles.subtitle}>Tus spots guardados para acceso rapido</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <Animated.ScrollView style={{ opacity: contentOpacity }} contentContainerStyle={[styles.scrollContent, compact ? styles.scrollContentCompact : null]}>
         {favorites.map((spot) => (
           <FavoriteSpotRow
             key={spot.id}
@@ -123,7 +137,7 @@ export default function FavoritesScreen({ favoriteSpotNames = [], onOpenSpot, on
         ))}
 
         {!favorites.length ? <Text style={styles.emptyText}>No tienes spots favoritos todavia.</Text> : null}
-      </ScrollView>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
@@ -131,22 +145,46 @@ export default function FavoritesScreen({ favoriteSpotNames = [], onOpenSpot, on
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#050B12',
+    backgroundColor: UI_COLORS.appBg,
+  },
+  atmosphereOne: {
+    position: 'absolute',
+    top: -130,
+    right: -80,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: '#0D2A3C',
+    opacity: 0.3,
   },
   header: {
-    paddingHorizontal: 18,
-    paddingTop: 8,
-    paddingBottom: 10,
+    marginHorizontal: 12,
+    marginTop: 8,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
+    backgroundColor: 'rgba(8, 20, 30, 0.78)',
+    borderWidth: 1,
+    borderColor: UI_COLORS.panelBorderSoft,
+    borderRadius: UI_RADIUS.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A2634',
+    borderBottomColor: UI_COLORS.panelBorderSoft,
+  },
+  headerCompact: {
+    marginHorizontal: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
   title: {
-    color: '#FFFFFF',
+    color: UI_COLORS.textPrimary,
     fontSize: 24,
     fontWeight: '900',
   },
+  titleCompact: {
+    fontSize: 20,
+  },
   subtitle: {
-    color: '#8EA2B8',
+    color: UI_COLORS.textSecondary,
     fontSize: 12,
     marginTop: 2,
   },
@@ -155,10 +193,15 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
     gap: 12,
   },
+  scrollContentCompact: {
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    gap: 10,
+  },
   rowWrap: {
-    borderRadius: 14,
+    borderRadius: UI_RADIUS.md,
     overflow: 'hidden',
-    backgroundColor: '#111923',
+    backgroundColor: UI_COLORS.panel,
   },
   deleteAction: {
     position: 'absolute',
@@ -166,7 +209,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 96,
-    backgroundColor: '#A92727',
+    backgroundColor: UI_COLORS.danger,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -176,15 +219,20 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   cardAnimated: {
-    borderRadius: 14,
+    borderRadius: UI_RADIUS.md,
   },
   card: {
-    backgroundColor: '#111923',
+    backgroundColor: UI_COLORS.panel,
     borderWidth: 1,
-    borderColor: '#253548',
-    borderRadius: 14,
+    borderColor: UI_COLORS.panelBorder,
+    borderRadius: UI_RADIUS.md,
     padding: 12,
     gap: 6,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 7,
   },
   cardTopRow: {
     flexDirection: 'row',
@@ -197,12 +245,12 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   spotName: {
-    color: '#EAF2FB',
+    color: UI_COLORS.textPrimary,
     fontSize: 14,
     fontWeight: '800',
   },
   cardText: {
-    color: '#B7C8D9',
+    color: UI_COLORS.textSecondary,
     fontSize: 12,
   },
   cardHint: {
@@ -211,7 +259,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   emptyText: {
-    color: '#8EA2B8',
+    color: UI_COLORS.textMuted,
     fontSize: 13,
     textAlign: 'center',
     marginTop: 28,

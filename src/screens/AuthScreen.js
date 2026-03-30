@@ -3,6 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Mail, ShieldCheck } from 'lucide-react-native';
 import { isAuthAvailable, sendOtpCode, verifyOtpCode } from '../services/authService';
+import { UI_COLORS, UI_RADIUS, UI_SPACE, UI_TYPE } from '../theme/ui';
 
 export default function AuthScreen() {
   const RESEND_COOLDOWN_SECONDS = 90;
@@ -100,6 +101,9 @@ export default function AuthScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.atmosphereOne} pointerEvents="none" />
+      <View style={styles.atmosphereTwo} pointerEvents="none" />
+
       <View style={styles.card}>
         <Text style={styles.title}>Surf ID</Text>
         <Text style={styles.subtitle}>Accede con email para activar alertas y reputacion real.</Text>
@@ -190,26 +194,51 @@ export default function AuthScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#050B12',
+    backgroundColor: UI_COLORS.appBg,
     justifyContent: 'center',
-    padding: 20,
+    padding: UI_SPACE.lg,
+  },
+  atmosphereOne: {
+    position: 'absolute',
+    top: -140,
+    right: -90,
+    width: 310,
+    height: 310,
+    borderRadius: 155,
+    backgroundColor: '#0E2F42',
+    opacity: 0.32,
+  },
+  atmosphereTwo: {
+    position: 'absolute',
+    bottom: -150,
+    left: -110,
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    backgroundColor: '#0B1E2C',
+    opacity: 0.36,
   },
   card: {
-    backgroundColor: '#101821',
+    backgroundColor: UI_COLORS.panel,
     borderWidth: 1,
-    borderColor: '#233445',
-    borderRadius: 16,
-    padding: 18,
+    borderColor: UI_COLORS.panelBorder,
+    borderRadius: UI_RADIUS.lg,
+    padding: UI_SPACE.lg,
     gap: 12,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.26,
+    shadowRadius: 12,
+    elevation: 9,
   },
   title: {
-    color: '#FFFFFF',
-    fontSize: 26,
+    color: UI_COLORS.textPrimary,
+    fontSize: UI_TYPE.titleLg,
     fontWeight: '900',
   },
   subtitle: {
-    color: '#8EA2B8',
-    fontSize: 13,
+    color: UI_COLORS.textSecondary,
+    fontSize: UI_TYPE.bodySm,
     lineHeight: 18,
   },
   warnBox: {
@@ -228,21 +257,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#0B1219',
+    backgroundColor: '#0A151F',
     borderWidth: 1,
-    borderColor: '#243444',
-    borderRadius: 10,
+    borderColor: '#2D4C62',
+    borderRadius: UI_RADIUS.sm,
     paddingHorizontal: 10,
     height: 44,
   },
   input: {
     flex: 1,
-    color: '#FFFFFF',
-    fontSize: 14,
+    color: UI_COLORS.textPrimary,
+    fontSize: UI_TYPE.bodyMd,
   },
   primaryBtn: {
-    backgroundColor: '#00D15D',
-    borderRadius: 10,
+    backgroundColor: UI_COLORS.accent,
+    borderRadius: UI_RADIUS.sm,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
@@ -251,8 +280,8 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   primaryBtnText: {
-    color: '#001108',
-    fontSize: 14,
+    color: UI_COLORS.accentText,
+    fontSize: UI_TYPE.bodyMd,
     fontWeight: '800',
   },
   linkBtn: {
@@ -261,22 +290,22 @@ const styles = StyleSheet.create({
   },
   linkText: {
     color: '#9FD8B4',
-    fontSize: 12,
+    fontSize: UI_TYPE.bodySm,
     fontWeight: '700',
   },
   errorText: {
     color: '#FF7D7D',
-    fontSize: 12,
+    fontSize: UI_TYPE.bodySm,
     fontWeight: '700',
   },
   infoText: {
     color: '#9FD8B4',
-    fontSize: 12,
+    fontSize: UI_TYPE.bodySm,
     fontWeight: '700',
   },
   hintText: {
-    color: '#8EA2B8',
-    fontSize: 11,
+    color: UI_COLORS.textMuted,
+    fontSize: UI_TYPE.caption,
     fontWeight: '600',
   },
 });

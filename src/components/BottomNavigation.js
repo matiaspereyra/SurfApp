@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Heart, House, Settings, Shield, Users } from 'lucide-react-native';
+import { UI_COLORS, UI_RADIUS } from '../theme/ui';
 
 const ITEMS = [
   { key: 'map', label: 'Inicio', Icon: House },
@@ -24,7 +25,7 @@ export default function BottomNavigation({ currentScreen, onChange, isAdmin = fa
             onPress={() => onChange(key)}
             activeOpacity={0.85}
           >
-            <Icon size={18} color={active ? '#07110B' : '#9EB3C8'} />
+            <Icon size={18} color={active ? UI_COLORS.accentText : UI_COLORS.textSecondary} />
             <Text style={[styles.itemText, active ? styles.itemTextActive : null]}>{label}</Text>
           </TouchableOpacity>
         );
@@ -40,30 +41,35 @@ const styles = StyleSheet.create({
     right: 14,
     bottom: 10,
     flexDirection: 'row',
-    backgroundColor: '#0E1621',
+    backgroundColor: UI_COLORS.panel,
     borderWidth: 1,
-    borderColor: '#243648',
-    borderRadius: 16,
+    borderColor: UI_COLORS.panelBorder,
+    borderRadius: UI_RADIUS.lg,
     padding: 6,
     zIndex: 40,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 8,
   },
   item: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
+    borderRadius: UI_RADIUS.md,
     gap: 4,
     paddingVertical: 8,
   },
   itemActive: {
-    backgroundColor: '#00D15D',
+    backgroundColor: UI_COLORS.accent,
   },
   itemText: {
-    color: '#9EB3C8',
+    color: UI_COLORS.textSecondary,
     fontSize: 10,
     fontWeight: '700',
   },
   itemTextActive: {
-    color: '#07110B',
+    color: UI_COLORS.accentText,
   },
 });

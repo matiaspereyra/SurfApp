@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import * as Location from 'expo-location';
 import { NZ_SPOTS } from '../constants/Spots';
 import { formatRelativeMinutes } from '../lib/timeFormat';
+import { isCompactLayout } from '../theme/ui';
 import {
   createCommunityReport,
   fetchCommunityReports,
@@ -91,6 +92,8 @@ export default function CommunityScreen({
   onOpenSpotForecast = () => {},
 }) {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const compact = isCompactLayout(width);
   const [reports, setReports] = useState([]);
   const [reputationRows, setReputationRows] = useState([]);
   const [isReportsLoading, setIsReportsLoading] = useState(true);
@@ -365,14 +368,14 @@ export default function CommunityScreen({
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, compact ? styles.headerCompact : null]}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
           <View style={styles.iconFrame}>
             <View style={[styles.iconStroke, styles.iconBackTop]} />
             <View style={[styles.iconStroke, styles.iconBackBottom]} />
           </View>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Community</Text>
+        <Text style={[styles.headerTitle, compact ? styles.headerTitleCompact : null]}>Community</Text>
         <TouchableOpacity style={styles.headerAction} onPress={() => setShowPublishModal(true)}>
           <View style={styles.iconFrame}>
             <View style={[styles.iconStroke, styles.iconPlusH]} />
@@ -381,9 +384,9 @@ export default function CommunityScreen({
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, compact ? styles.scrollContentCompact : null]}>
         <View style={[styles.card, styles.reportsCard]}>
-          <Text style={styles.cardTitle}>Reportes por playa cercana</Text>
+          <Text style={[styles.cardTitle, compact ? styles.cardTitleCompact : null]}>Reportes por playa cercana</Text>
           {isInitialLoading ? (
             <View style={styles.loadingWrap}>
               <View style={styles.loadingLineLong} />
@@ -434,7 +437,7 @@ export default function CommunityScreen({
         </View>
 
         <View style={[styles.card, styles.reputationCard]}>
-          <Text style={styles.cardTitle}>Top reputacion</Text>
+          <Text style={[styles.cardTitle, compact ? styles.cardTitleCompact : null]}>Top reputacion</Text>
           {isInitialLoading ? (
             <View style={styles.repSkeletonWrap}>
               <View style={styles.repSkeletonRow} />
@@ -561,16 +564,27 @@ export default function CommunityScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#050B12',
+    backgroundColor: '#040A10',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
+    marginHorizontal: 12,
+    marginTop: 8,
+    paddingHorizontal: 12,
     paddingVertical: 12,
+    backgroundColor: 'rgba(8, 20, 30, 0.78)',
+    borderWidth: 1,
+    borderColor: '#244257',
+    borderRadius: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A2634',
+    borderBottomColor: '#244257',
+  },
+  headerCompact: {
+    marginHorizontal: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
   backBtn: {
     width: 28,
@@ -579,9 +593,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {
-    color: '#FFFFFF',
+    color: '#F3FAFF',
     fontSize: 17,
     fontWeight: '800',
+  },
+  headerTitleCompact: {
+    fontSize: 15,
   },
   headerAction: {
     flexDirection: 'row',
@@ -680,23 +697,37 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     gap: 12,
+    paddingBottom: 36,
+  },
+  scrollContentCompact: {
+    paddingHorizontal: 12,
+    paddingTop: 12,
     paddingBottom: 30,
+    gap: 10,
   },
   card: {
-    backgroundColor: '#111923',
+    backgroundColor: 'rgba(9, 21, 31, 0.9)',
     borderWidth: 1,
-    borderColor: '#253548',
-    borderRadius: 14,
-    padding: 12,
+    borderColor: '#27475C',
+    borderRadius: 16,
+    padding: 13,
     gap: 9,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 7,
   },
   cardTitle: {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
   },
+  cardTitleCompact: {
+    fontSize: 14,
+  },
   cardHint: {
-    color: '#8EA2B8',
+    color: '#A8C1D3',
     fontSize: 12,
   },
   spotPickerWrap: {
@@ -804,10 +835,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   reportCard: {
-    backgroundColor: '#0D151F',
+    backgroundColor: '#0E1C28',
     borderWidth: 1,
-    borderColor: '#223345',
-    borderRadius: 11,
+    borderColor: '#2D4E66',
+    borderRadius: 12,
     padding: 10,
     gap: 8,
   },
@@ -860,7 +891,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   reportSpotName: {
-    color: '#E9F3FC',
+    color: '#F0F8FF',
     fontSize: 13,
     fontWeight: '700',
   },
@@ -875,7 +906,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   reportText: {
-    color: '#CFDEEC',
+    color: '#D7E6F2',
     fontSize: 12,
     lineHeight: 17,
   },
@@ -921,7 +952,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   repName: {
-    color: '#E5F1FC',
+    color: '#EFF8FF',
     flex: 1,
     fontSize: 12,
     fontWeight: '700',
@@ -953,8 +984,10 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   modalContent: {
-    backgroundColor: '#0A1218',
-    borderRadius: 12,
+    backgroundColor: '#091722',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2A4A61',
     maxHeight: '75%',
     marginHorizontal: 10,
     zIndex: 101,
