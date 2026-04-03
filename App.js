@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, StyleSheet, StatusBar, Animated } from 'react-native';
+import { AppState, View, StyleSheet, StatusBar, Animated, ActivityIndicator, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MapScreen from './src/screens/MapScreen';
 import ForecastScreen from './src/screens/ForecastScreen';
@@ -14,7 +13,7 @@ import { SpotQuickCard } from './src/components/SpotQuickCard';
 import BottomNavigation from './src/components/BottomNavigation';
 import { getCurrentUser, onAuthStateChange } from './src/services/authService';
 import { ensureUserProfile } from './src/services/profileService';
-import { getPushToken, savePushTokenToDatabase } from './src/services/notificationService';
+import { getPushToken, savePushTokenToDatabase, savePushPresenceToDatabase } from './src/services/notificationService';
 import { NZ_SPOTS } from './src/constants/Spots';
 
 const FAVORITES_STORAGE_KEY = 'surfapp:favorites:v1';
@@ -30,6 +29,7 @@ export default function App() {
   const [mapExpanded, setMapExpanded] = useState(false);
   const [communityInitialSpotName, setCommunityInitialSpotName] = useState('');
   const [communityInitialReportId, setCommunityInitialReportId] = useState('');
+  const [communityInitialReport, setCommunityInitialReport] = useState(null);
   const [authUser, setAuthUser] = useState(null);
   const [authProfile, setAuthProfile] = useState(null);
   const [authBootstrapped, setAuthBootstrapped] = useState(false);
@@ -39,20 +39,34 @@ export default function App() {
   const forecastSlide = useRef(new Animated.Value(300)).current;
   const pushSetupAttemptedRef = useRef(false);
   const lastPushSetupUserIdRef = useRef(null);
+  const appStateRef = useRef(AppState.currentState);
   const isAdmin = ADMIN_EMAILS.has(String(authUser?.email || '').toLowerCase());
 
   useEffect(() => {
     let mounted = true;
 
     const bootstrap = async () => {
-      const user = await getCurrentUser();
-      if (mounted) {
-        setAuthUser(user);
-        if (user) {
-          const profile = await ensureUserProfile(user);
-          setAuthProfile(profile);
+      try {
+        const user = await getCurrentUser();
+        if (mounted) {
+          setAuthUser(user);
+          if (user) {
+            const profile = await ensureUserProfile(user);
+            if (mounted) {
+              setAuthProfile(profile);
+            }
+          }
         }
-        setAuthBootstrapped(true);
+      } catch (error) {
+        console.log('Auth bootstrap error:', error);
+        if (mounted) {
+          setAuthUser(null);
+          setAuthProfile(null);
+        }
+      } finally {
+        if (mounted) {
+          setAuthBootstrapped(true);
+        }
       }
     };
 
@@ -109,53 +123,36 @@ export default function App() {
 
     setupPushNotifications();
 
+    const markPresence = async (isForeground) => {
+      await savePushPresenceToDatabase(isForeground).catch(() => {});
+    };
+
+    markPresence(true);
+
+    const heartbeatId = setInterval(() => {
+      if (appStateRef.current === 'active') {
+        markPresence(true);
+      }
+    }, 30000);
+
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      const wasActive = appStateRef.current === 'active';
+      appStateRef.current = nextState;
+
+      if (nextState === 'active') {
+        markPresence(true);
+      } else if (wasActive && nextState.match(/inactive|background/)) {
+        markPresence(false);
+      }
+    });
+
     return () => {
       mounted = false;
+      clearInterval(heartbeatId);
+      appStateSubscription.remove();
+      savePushPresenceToDatabase(false).catch(() => {});
     };
   }, [authBootstrapped, authUser]);
-
-  useEffect(() => {
-    const handleNotificationRoute = (response) => {
-      const data = response?.notification?.request?.content?.data || {};
-      const target = data?.target;
-      const spotName = typeof data?.spotName === 'string' ? data.spotName : '';
-      const reportId = typeof data?.reportId === 'string' ? data.reportId : '';
-
-      if (target === 'community') {
-        if (spotName) {
-          setCommunityInitialSpotName(spotName);
-        }
-        if (reportId) {
-          setCommunityInitialReportId(reportId);
-        }
-        setCurrentScreen('community');
-        return;
-      }
-
-      if (spotName) {
-        const nextSpot = NZ_SPOTS.find((spot) => spot.name.toLowerCase() === spotName.toLowerCase());
-        if (nextSpot) {
-          setCurrentScreen('map');
-          setMapExpanded(true);
-          setActiveSpot(nextSpot);
-        }
-      }
-    };
-
-    Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (response) {
-        handleNotificationRoute(response);
-      }
-    });
-
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      handleNotificationRoute(response);
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -385,9 +382,12 @@ export default function App() {
     setCurrentScreen('settings');
   };
 
-  const handleOpenCommunity = () => {
+  const handleOpenCommunity = (spotName = '', reportId = '', report = null) => {
     setMapExpanded(false);
     setActiveSpot(null);
+    setCommunityInitialSpotName(String(spotName || ''));
+    setCommunityInitialReportId(String(reportId || ''));
+    setCommunityInitialReport(report && typeof report === 'object' ? report : null);
     setCurrentScreen('community');
   };
 
@@ -395,6 +395,7 @@ export default function App() {
     console.log('Clearing initialReportId');
     setCommunityInitialSpotName('');
     setCommunityInitialReportId('');
+    setCommunityInitialReport(null);
   }, []);
 
   const handleBackFromSettings = () => {
@@ -429,7 +430,10 @@ export default function App() {
   if (!authBootstrapped) {
     return (
       <SafeAreaProvider>
-        <View style={styles.container} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0EA5E9" />
+          <Text style={styles.loadingText}>Cargando SurfApp...</Text>
+        </View>
       </SafeAreaProvider>
     );
   }
@@ -535,6 +539,7 @@ export default function App() {
             authUser={authUser}
             initialSpotName={communityInitialSpotName}
             initialReportId={communityInitialReportId}
+            initialReport={communityInitialReport}
             onInitialSpotConsumed={handleCommunityInitialSpotConsumed}
             onBack={handleBackFromCommunity}
             onOpenSpotForecast={(spotName) => handleOpenSpotForecast(spotName, 'community')}
@@ -591,4 +596,16 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   screen: { flex: 1, backgroundColor: '#000' },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    color: '#0F172A',
+    fontSize: 15,
+    fontWeight: '700',
+  },
 });

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
-import { Plus, X } from 'lucide-react-native';
+import { Animated, Easing, PanResponder, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Plus, ThumbsUp } from 'lucide-react-native';
 import { Modal } from 'react-native';
 import * as Location from 'expo-location';
 import { NZ_SPOTS } from '../constants/Spots';
@@ -21,6 +21,12 @@ import { requestPushPermission } from '../services/notificationService';
 
 const NEARBY_RADIUS_METERS = 30000;
 const USER_RATING_OPTIONS = ['POOR', 'FAIR', 'GOOD', 'EPIC'];
+const RATING_TONE_MAP = {
+  EPIC: '#0F766E',
+  GOOD: '#166534',
+  FAIR: '#B45309',
+  POOR: '#B91C1C',
+};
 
 const toRad = (value) => (value * Math.PI) / 180;
 
@@ -38,32 +44,72 @@ const calcDistanceMeters = (aLat, aLng, bLat, bLng) => {
   return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 };
 
-const ReportCardItem = React.memo(({ report, onPress, onUpvote, authUser }) => {
+const getRatingTone = (rating) => {
+  const key = String(rating || '').trim().toUpperCase();
+  return RATING_TONE_MAP[key] || '#334155';
+};
+
+const ReportCardItem = React.memo(({ report, onPress, onUpvote, authUser, onLayout, highlighted, highlightProgress }) => {
   return (
     <TouchableOpacity 
       key={report.id} 
-      style={styles.reportCard}
+      style={[styles.reportCard, highlighted ? styles.reportCardHighlighted : null]}
       onPress={onPress}
+      onLayout={onLayout}
       activeOpacity={0.7}
     >
+      {highlighted ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.reportHighlightOverlay,
+            {
+              opacity: highlightProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 0.3],
+              }),
+            },
+          ]}
+        />
+      ) : null}
+
       <View style={styles.reportTopRow}>
         <View style={styles.reportSpotRow}>
           <View style={styles.iconSlot}>
             <View style={styles.pinDot} />
           </View>
           <Text style={styles.reportSpotName}>{report.spotName}</Text>
-          <Text style={styles.reportMeta}>{formatRelativeMinutes(report.minutesAgo)}</Text>
+          {highlighted ? <Text style={styles.newBadge}>Nuevo</Text> : null}
         </View>
-        <Text style={styles.reportRating}>{report.rating}</Text>
+        <Text style={styles.reportMeta}>{formatRelativeMinutes(report.minutesAgo)}</Text>
       </View>
-      <Text style={styles.reportText}>{report.text}</Text>
-      {!!report.forecastRating ? (
-        <Text style={styles.reportForecastMeta}>
-          Usuario: {report.userRating || report.rating} | Forecast: {report.forecastRating}
+
+      <View style={styles.reportInfoRow}>
+        <Text style={styles.reportSummary}>
+          {String(report.reporter || 'Usuario')} califico el spot como{' '}
+          <Text style={[styles.reportSummaryRating, { color: getRatingTone(report.rating) }]}>
+            {String(report.rating || 'sin dato').toLowerCase()}
+          </Text>
+          {report.forecastRating ? (
+            <>
+              {' '}y el forecast dice que es{' '}
+              <Text style={[styles.reportSummaryRating, { color: getRatingTone(report.forecastRating) }]}>
+                {String(report.forecastRating).toLowerCase()}
+              </Text>
+              .
+            </>
+          ) : (
+            '.'
+          )}
         </Text>
-      ) : null}
+      </View>
+
+      <Text style={styles.reportCommentLabel}>Comentario del dia del usuario es:</Text>
+      <View style={styles.reportCommentBox}>
+        <Text style={styles.reportText}>{report.text}</Text>
+      </View>
       <View style={styles.reportBottomRow}>
-        <Text style={styles.reportMeta}>{report.reporter} • {report.windKts}kts</Text>
+        <Text style={styles.reportWind}>{report.windKts}kts</Text>
         <View pointerEvents="auto">
           <TouchableOpacity
             style={[
@@ -76,7 +122,7 @@ const ReportCardItem = React.memo(({ report, onPress, onUpvote, authUser }) => {
             disabled={authUser?.id && report?.reporterId && authUser.id === report.reporterId}
           >
             <View style={styles.iconSlot}>
-              <View style={styles.upvoteDot} />
+              <ThumbsUp size={12} color={UI_COLORS.accent} strokeWidth={2.2} />
             </View>
             <Text style={styles.upvoteText}>{report.score}</Text>
           </TouchableOpacity>
@@ -90,14 +136,16 @@ export default function CommunityScreen({
   authUser, 
   initialSpotName = '', 
   initialReportId = '',
+  initialReport = null,
   onInitialSpotConsumed = () => {}, 
   onBack,
   onOpenSpotForecast = () => {},
 }) {
   const { width } = useWindowDimensions();
+  const { height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const compact = isCompactLayout(width);
-  const [reports, setReports] = useState([]);
+  const [reports, setReports] = useState(() => (initialReport ? [initialReport] : []));
   const [reputationRows, setReputationRows] = useState([]);
   const [isReportsLoading, setIsReportsLoading] = useState(true);
   const [selectedSpotName, setSelectedSpotName] = useState('');
@@ -111,6 +159,22 @@ export default function CommunityScreen({
   const initialReportsLoadedRef = useRef(false);
   const hasAnimatedInRef = useRef(false);
   const contentFadeAnim = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef(null);
+  const reportLayoutRef = useRef({});
+  const groupLayoutRef = useRef({});
+  const didAutoFocusReportRef = useRef(false);
+  const [reportLayoutTick, setReportLayoutTick] = useState(0);
+  const [incomingReportId] = useState(initialReportId || '');
+  const [incomingReport] = useState(initialReport || null);
+  const [highlightedReportId, setHighlightedReportId] = useState(initialReportId || '');
+  const highlightProgress = useRef(new Animated.Value(0)).current;
+  const focusedSkeletonPulse = useRef(new Animated.Value(0.78)).current;
+  const modalDragOffset = useRef(new Animated.Value(0)).current;
+  const panResponderRef = useRef(null);
+  const modalScrollOffsetRef = useRef(0);
+  const isHandleDraggingRef = useRef(false);
+  const modalClosingRef = useRef(false);
+  const modalDragValueRef = useRef(0);
 
   const spotsWithDistance = useMemo(() => {
     if (!userCoords) return [];
@@ -150,22 +214,91 @@ export default function CommunityScreen({
   const canReportFromHere =
     locationStatus === 'ready' && selectedSpotDistance !== null && selectedSpotDistance <= NEARBY_RADIUS_METERS;
   const isInitialLoading = isReportsLoading || locationStatus === 'loading';
+  const hasImmediateReport = Boolean(initialReport);
+  const showLoadingSkeleton = isInitialLoading && !hasImmediateReport;
+  const showFocusedSkeleton = isInitialLoading && Boolean(incomingReportId);
   const contentTranslateY = contentFadeAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [8, 0],
+    outputRange: [5, 0],
   });
+
+  const reportsWithInitial = useMemo(() => {
+    if (!incomingReport) return reports;
+
+    const exists = reports.some((report) => String(report.id) === String(incomingReport.id));
+    return exists ? reports : [incomingReport, ...reports];
+  }, [incomingReport, reports]);
 
   const reportsByNearbySpot = useMemo(
     () =>
       nearbySpots.map((item) => ({
         spotName: item.spot.name,
         distance: item.distance,
-        reports: reports.filter((report) => report.spotName === item.spot.name),
-      })),
-    [nearbySpots, reports]
+        reports: reportsWithInitial.filter((report) => report.spotName === item.spot.name),
+      }))
+      .filter((group) => group.reports.length > 0),
+    [nearbySpots, reportsWithInitial]
   );
 
   const selectedForecast = selectedSpot?.forecast?.[0] || null;
+  const modalHalfCloseThreshold = screenHeight * 0.5;
+  const modalOverlayOpacity = modalDragOffset.interpolate({
+    inputRange: [0, screenHeight * 0.65],
+    outputRange: [1, 0.72],
+    extrapolate: 'clamp',
+  });
+
+  const applyModalDragOffset = useCallback(
+    (rawDy) => {
+      const dy = Math.max(0, rawDy);
+      const resistedDy = dy <= 120 ? dy * 0.95 : 114 + (dy - 120) * 0.42;
+      modalDragOffset.setValue(resistedDy);
+    },
+    [modalDragOffset]
+  );
+
+  const resetPublishModalPosition = useCallback(() => {
+    Animated.spring(modalDragOffset, {
+      toValue: 0,
+      damping: 22,
+      mass: 0.9,
+      stiffness: 240,
+      overshootClamping: true,
+      useNativeDriver: true,
+    }).start();
+  }, [modalDragOffset]);
+
+  const closePublishModalWithSlide = useCallback((velocity = 0) => {
+    if (modalClosingRef.current) return;
+
+    modalClosingRef.current = true;
+    const duration = Math.max(170, Math.min(300, 280 - Math.abs(velocity) * 70));
+    Animated.timing(modalDragOffset, {
+      toValue: screenHeight,
+      duration,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowPublishModal(false);
+      modalDragOffset.setValue(0);
+      modalScrollOffsetRef.current = 0;
+      isHandleDraggingRef.current = false;
+      modalClosingRef.current = false;
+    });
+  }, [modalDragOffset, screenHeight]);
+
+  const loadCommunityData = useCallback(async () => {
+    const [nextReports, nextRep] = await Promise.all([
+      fetchCommunityReports(),
+      fetchTopReputation(),
+    ]);
+
+    setReports(
+      incomingReport && !((nextReports || []).some((report) => String(report.id) === String(incomingReport.id)))
+        ? [incomingReport, ...(nextReports || [])]
+        : (nextReports || [])
+    );
+    setReputationRows(nextRep || []);
+  }, [incomingReport]);
 
   useEffect(() => {
     requestPushPermission().catch(() => {});
@@ -179,10 +312,104 @@ export default function CommunityScreen({
     hasAnimatedInRef.current = true;
     Animated.timing(contentFadeAnim, {
       toValue: 1,
-      duration: 220,
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
   }, [contentFadeAnim, isInitialLoading]);
+
+  useEffect(() => {
+    if (!showFocusedSkeleton) {
+      focusedSkeletonPulse.stopAnimation();
+      focusedSkeletonPulse.setValue(0.78);
+      return;
+    }
+
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(focusedSkeletonPulse, {
+          toValue: 0.96,
+          duration: 900,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(focusedSkeletonPulse, {
+          toValue: 0.78,
+          duration: 900,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    pulseLoop.start();
+
+    return () => {
+      pulseLoop.stop();
+    };
+  }, [focusedSkeletonPulse, showFocusedSkeleton]);
+
+  useEffect(() => {
+    if (!showPublishModal) return;
+
+    modalDragOffset.setValue(0);
+    modalScrollOffsetRef.current = 0;
+    isHandleDraggingRef.current = false;
+    modalClosingRef.current = false;
+  }, [modalDragOffset, showPublishModal]);
+
+  useEffect(() => {
+    const listenerId = modalDragOffset.addListener(({ value }) => {
+      modalDragValueRef.current = value;
+    });
+
+    return () => {
+      modalDragOffset.removeListener(listenerId);
+    };
+  }, [modalDragOffset]);
+
+  useEffect(() => {
+    const panResponder = PanResponder.create({
+      onStartShouldSetPanResponder: () => showPublishModal,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        return (
+          showPublishModal &&
+          gestureState.dy > 2 &&
+          Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
+        );
+      },
+      onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
+        return (
+          showPublishModal &&
+          gestureState.dy > 2 &&
+          Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
+        );
+      },
+      onPanResponderGrant: () => {
+        isHandleDraggingRef.current = true;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (gestureState.dy < 0) return;
+        applyModalDragOffset(gestureState.dy);
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        if (modalDragValueRef.current > modalHalfCloseThreshold) {
+          closePublishModalWithSlide(gestureState.vy);
+        } else {
+          resetPublishModalPosition();
+        }
+
+        isHandleDraggingRef.current = false;
+      },
+      onPanResponderTerminate: () => {
+        isHandleDraggingRef.current = false;
+        resetPublishModalPosition();
+      },
+    });
+
+    panResponderRef.current = panResponder;
+  }, [applyModalDragOffset, closePublishModalWithSlide, modalHalfCloseThreshold, resetPublishModalPosition, showPublishModal]);
 
   useEffect(() => {
     let mounted = true;
@@ -229,15 +456,9 @@ export default function CommunityScreen({
 
     const load = async () => {
       try {
-        const [nextReports, nextRep] = await Promise.all([
-          fetchCommunityReports(),
-          fetchTopReputation(),
-        ]);
+        await loadCommunityData();
 
         if (!mounted) return;
-
-        setReports(nextReports || []);
-        setReputationRows(nextRep || []);
       } finally {
         if (mounted && !initialReportsLoadedRef.current) {
           initialReportsLoadedRef.current = true;
@@ -248,13 +469,18 @@ export default function CommunityScreen({
 
     load();
 
+    const intervalId = setInterval(() => {
+      loadCommunityData().catch(() => {});
+    }, 15000);
+
     const unsubscribe = subscribeToCommunityReports(load);
 
     return () => {
       mounted = false;
+      clearInterval(intervalId);
       unsubscribe();
     };
-  }, []);
+  }, [loadCommunityData]);
 
   useEffect(() => {
     if (!selectedSpotName && nearbySpots.length) {
@@ -280,9 +506,52 @@ export default function CommunityScreen({
     }
   }, [initialSpotName, nearbySpots]);
 
+  useEffect(() => {
+    if (!incomingReportId) {
+      didAutoFocusReportRef.current = false;
+      setHighlightedReportId('');
+      highlightProgress.setValue(0);
+      return;
+    }
 
+    didAutoFocusReportRef.current = false;
+    setHighlightedReportId(incomingReportId);
+    highlightProgress.stopAnimation();
+    highlightProgress.setValue(1);
 
+    const timeoutId = setTimeout(() => {
+      Animated.timing(highlightProgress, {
+        toValue: 0,
+        duration: 650,
+        useNativeDriver: true,
+      }).start(() => {
+        setHighlightedReportId('');
+      });
+    }, 5000);
 
+    return () => {
+      clearTimeout(timeoutId);
+      highlightProgress.stopAnimation();
+    };
+  }, [highlightProgress, incomingReportId]);
+
+  useEffect(() => {
+    if (!incomingReportId || !reportsWithInitial.length || didAutoFocusReportRef.current) return;
+
+    const targetReport = reportsWithInitial.find((report) => String(report.id) === String(incomingReportId));
+    if (!targetReport) return;
+
+    const targetLayout = reportLayoutRef.current[String(targetReport.id)];
+    if (!targetLayout || !scrollRef.current?.scrollTo) return;
+
+    didAutoFocusReportRef.current = true;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({
+        y: Math.max(0, targetLayout.y - 24),
+        animated: true,
+      });
+    });
+  }, [incomingReportId, reportsWithInitial, reportLayoutTick]);
 
   const handlePublish = async () => {
     setFeedback('');
@@ -337,6 +606,8 @@ export default function CommunityScreen({
 
     setNewReportText('');
     setFeedback('Reporte publicado correctamente.');
+    setShowPublishModal(false);
+    await loadCommunityData().catch(() => {});
   };
 
   const handleOpenFromNotification = async () => {
@@ -369,6 +640,14 @@ export default function CommunityScreen({
     );
   }, [authUser?.id]);
 
+  const focusedReport = useMemo(() => {
+    if (!incomingReportId) return null;
+
+    return reportsWithInitial.find((report) => String(report.id) === String(incomingReportId)) || incomingReport;
+  }, [incomingReport, incomingReportId, reportsWithInitial]);
+
+  const isFocusedReportHighlighted = String(highlightedReportId || '') === String(incomingReportId || '');
+
   return (
     <SafeAreaView style={styles.container}>
       <AppHeader
@@ -382,10 +661,21 @@ export default function CommunityScreen({
         )}
       />
 
-      <ScrollView contentContainerStyle={[styles.scrollContent, compact ? styles.scrollContentCompact : null]}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={[styles.scrollContent, compact ? styles.scrollContentCompact : null]}
+      >
         <View style={[styles.card, styles.reportsCard]}>
+          {showFocusedSkeleton ? (
+            <View style={styles.focusedSkeletonCard}>
+              <Animated.View style={[styles.focusedSkeletonLineShort, { opacity: focusedSkeletonPulse }]} />
+              <Animated.View style={[styles.focusedSkeletonLineLong, { opacity: focusedSkeletonPulse }]} />
+              <Animated.View style={[styles.focusedSkeletonBlock, { opacity: focusedSkeletonPulse }]} />
+            </View>
+          ) : null}
+
           <Text style={[styles.cardTitle, compact ? styles.cardTitleCompact : null]}>Reportes por playa cercana</Text>
-          {isInitialLoading ? (
+          {showLoadingSkeleton ? (
             <View style={styles.loadingWrap}>
               <View style={styles.loadingLineLong} />
               <View style={styles.loadingLineMedium} />
@@ -394,7 +684,7 @@ export default function CommunityScreen({
             </View>
           ) : null}
 
-          {!isInitialLoading ? (
+          {!showLoadingSkeleton ? (
             <Animated.View
               style={{
                 opacity: contentFadeAnim,
@@ -402,11 +692,28 @@ export default function CommunityScreen({
               }}
             >
               {!reportsByNearbySpot.length ? (
-                <Text style={styles.cardHint}>No hay playas cercanas para mostrar.</Text>
+                <View style={styles.emptyStateCard}>
+                  <Text style={styles.emptyStateTitle}>Aun no hay comentarios cerca tuyo</Text>
+                  <Text style={styles.emptyStateText}>
+                    Cuando alguien publique una condicion real del mar, la veras aqui al instante.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.emptyStateAction}
+                    onPress={() => setShowPublishModal(true)}
+                  >
+                    <Text style={styles.emptyStateActionText}>Publicar primer comentario</Text>
+                  </TouchableOpacity>
+                </View>
               ) : null}
 
               {reportsByNearbySpot.map((group) => (
-                <View key={group.spotName} style={styles.reportGroupWrap}>
+                <View
+                  key={group.spotName}
+                  style={styles.reportGroupWrap}
+                  onLayout={(event) => {
+                    groupLayoutRef.current[group.spotName] = event.nativeEvent.layout.y;
+                  }}
+                >
                   <View style={styles.reportGroupHeader}>
                     <Text style={styles.reportGroupTitle}>{group.spotName}</Text>
                     <Text style={styles.reportGroupMeta}>{(group.distance / 1000).toFixed(1)} km</Text>
@@ -418,6 +725,15 @@ export default function CommunityScreen({
                         key={report.id}
                         report={report}
                         authUser={authUser}
+                        highlighted={String(report.id) === String(incomingReportId) && isFocusedReportHighlighted}
+                        highlightProgress={highlightProgress}
+                        onLayout={(event) => {
+                          const groupOffset = groupLayoutRef.current[group.spotName] || 0;
+                          reportLayoutRef.current[String(report.id)] = {
+                            y: groupOffset + event.nativeEvent.layout.y,
+                          };
+                          setReportLayoutTick((current) => current + 1);
+                        }}
                         onPress={() => {
                           markReportAsViewed(report.id);
                           onOpenSpotForecast(report.spotName);
@@ -469,30 +785,23 @@ export default function CommunityScreen({
         visible={showPublishModal}
         transparent={false}
         animationType="slide"
-        presentationStyle="formSheet"
+        presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'fullScreen'}
         onRequestClose={() => setShowPublishModal(false)}
       >
-        <View style={[styles.publishModalContainer, { paddingTop: insets.top / 2 }]}>
-          <AppHeader
-            title="Publicar estado del spot"
-            subtitle="Comparte una lectura real del mar"
-            compact
-            skipSafeAreaOffset={true}
-            leftElement={(
-              <TouchableOpacity
-                style={styles.headerAction}
-                onPress={() => setShowPublishModal(false)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <X color={UI_COLORS.textPrimary} size={22} />
-              </TouchableOpacity>
-            )}
-          />
+        <View style={styles.publishModalContainer}>
+            <View style={styles.publishModalDragZone}>
+              <View style={styles.publishModalDragHandleWrap}>
+                <View style={styles.publishModalDragHandle} />
+              </View>
+            </View>
 
           <ScrollView
             style={styles.publishModalScroll}
             contentContainerStyle={[styles.publishModalContent, { paddingBottom: 120 + insets.bottom }]}
             showsVerticalScrollIndicator={false}
+            bounces={true}
+            alwaysBounceVertical={true}
+            scrollEventThrottle={16}
           >
             <View style={styles.publishIntroCard}>
               <Text style={styles.publishIntroTitle}>Reporte en vivo</Text>
@@ -607,6 +916,33 @@ const styles = StyleSheet.create({
   reportsCard: {
     minHeight: 240,
   },
+  focusedSkeletonCard: {
+    borderWidth: 1,
+    borderColor: '#D6E2EC',
+    backgroundColor: '#F8FBFF',
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+    marginBottom: 10,
+  },
+  focusedSkeletonLineShort: {
+    width: '32%',
+    height: 9,
+    borderRadius: 6,
+    backgroundColor: '#D6DEE8',
+  },
+  focusedSkeletonLineLong: {
+    width: '88%',
+    height: 10,
+    borderRadius: 6,
+    backgroundColor: '#D6DEE8',
+  },
+  focusedSkeletonBlock: {
+    width: '100%',
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: '#E7EDF3',
+  },
   reputationCard: {
     minHeight: 190,
   },
@@ -618,19 +954,19 @@ const styles = StyleSheet.create({
     width: '72%',
     height: 10,
     borderRadius: 6,
-    backgroundColor: '#1A2734',
+    backgroundColor: '#D6DEE8',
   },
   loadingLineMedium: {
     width: '46%',
     height: 10,
     borderRadius: 6,
-    backgroundColor: '#1A2734',
+    backgroundColor: '#D6DEE8',
   },
   loadingBlock: {
     width: '100%',
     height: 64,
     borderRadius: 10,
-    backgroundColor: '#12202D',
+    backgroundColor: '#E7EDF3',
   },
   repSkeletonWrap: {
     gap: 10,
@@ -640,7 +976,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 18,
     borderRadius: 8,
-    backgroundColor: '#12202D',
+    backgroundColor: '#E7EDF3',
   },
   closeIconFrame: {
     width: 20,
@@ -693,6 +1029,39 @@ const styles = StyleSheet.create({
   cardHint: {
     color: UI_COLORS.textMuted,
     fontSize: 11,
+  },
+  emptyStateCard: {
+    borderWidth: 1,
+    borderColor: '#D6E2EC',
+    backgroundColor: '#F8FBFF',
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+  },
+  emptyStateTitle: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  emptyStateText: {
+    color: '#475569',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  emptyStateAction: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#111827',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  emptyStateActionText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
   spotPickerWrap: {
     flexDirection: 'row',
@@ -795,7 +1164,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   feedbackText: {
-    color: '#A7D8BC',
+    color: '#0F5132',
     fontSize: 11,
   },
   reportCard: {
@@ -805,6 +1174,25 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     padding: 10,
     gap: 8,
+    overflow: 'hidden',
+  },
+  reportCardHighlighted: {
+    borderColor: '#0284C7',
+    borderLeftWidth: 4,
+    backgroundColor: '#EAF6FF',
+    shadowColor: '#0284C7',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  reportHighlightOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: '#7DD3FC',
   },
   iconSlot: {
     width: 14,
@@ -818,12 +1206,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: UI_COLORS.textMuted,
   },
-  upvoteDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: UI_COLORS.accent,
-  },
   reportGroupWrap: {
     gap: 8,
     paddingTop: 4,
@@ -835,12 +1217,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   reportGroupTitle: {
-    color: '#E5F6FF',
+    color: '#0F172A',
     fontSize: 13,
     fontWeight: '900',
   },
   reportGroupMeta: {
-    color: '#8EA2B8',
+    color: '#475569',
     fontSize: 11,
     fontWeight: '700',
   },
@@ -853,36 +1235,73 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flex: 1,
   },
   reportSpotName: {
-    color: '#F0F8FF',
+    color: '#111827',
     fontSize: 13,
     fontWeight: '700',
   },
+  newBadge: {
+    backgroundColor: '#0284C7',
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
   reportMeta: {
-    color: '#7EA0B6',
+    color: '#475569',
     fontSize: 11,
     fontWeight: '700',
   },
-  reportRating: {
-    color: '#9CE1B7',
-    fontSize: 11,
-    fontWeight: '800',
+  reportInfoRow: {
+    gap: 8,
+  },
+  reportSummary: {
+    color: '#1E293B',
+    fontSize: 12,
+    lineHeight: 18,
+    fontStyle: 'italic',
+  },
+  reportSummaryRating: {
+    fontStyle: 'italic',
+    fontWeight: '700',
+  },
+  reportCommentLabel: {
+    color: '#475569',
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  reportCommentBox: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#93C5FD',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
   reportText: {
-    color: '#D2EAF7',
+    color: '#1E293B',
     fontSize: 12,
-    lineHeight: 17,
-  },
-  reportForecastMeta: {
-    color: '#88A0B7',
-    fontSize: 11,
-    fontWeight: '700',
+    lineHeight: 18,
+    fontStyle: 'italic',
   },
   reportBottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  reportWind: {
+    color: '#475569',
+    fontSize: 11,
+    fontWeight: '700',
   },
   upvoteBtn: {
     flexDirection: 'row',
@@ -899,7 +1318,7 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   upvoteText: {
-    color: '#9FD8B4',
+    color: '#166534',
     fontSize: 11,
     fontWeight: '800',
   },
@@ -910,26 +1329,52 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   repRank: {
-    color: '#8EA2B8',
+    color: '#475569',
     width: 30,
     fontSize: 12,
     fontWeight: '700',
   },
   repName: {
-    color: '#EFF8FF',
+    color: '#111827',
     flex: 1,
     fontSize: 12,
     fontWeight: '700',
   },
   repPoints: {
-    color: '#9FD8B4',
+    color: '#166534',
     fontSize: 12,
     fontWeight: '700',
   },
 
+  publishModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
   publishModalContainer: {
     flex: 1,
+    width: '100%',
     backgroundColor: UI_COLORS.panel,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+  },
+  publishModalDragZone: {
+    height: 44,
+    justifyContent: 'center',
+  },
+  publishModalDragHandleWrap: {
+    paddingTop: 4,
+    paddingBottom: 4,
+    alignItems: 'center',
+  },
+  publishModalDragHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: '#D1D5DB',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 8,
+    marginBottom: 4,
   },
   publishModalScroll: {
     flex: 1,

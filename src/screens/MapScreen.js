@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView from 'react-native-maps';
 import * as Location from 'expo-location';
-import { LocateFixed, Search } from 'lucide-react-native';
+import { Bell, LocateFixed, Search } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SpotMarker } from '../components/SpotMarker';
 import { CompactReportsPreview } from '../components/CompactReportsPreview';
@@ -43,7 +43,9 @@ export default function MapScreen({
   const mapRef = useRef(null);
   const markerPressedRef = useRef(false);
   const profilePulseAnim = useRef(new Animated.Value(0)).current;
+  const bellAnim = useRef(new Animated.Value(0)).current;
   const lastNearbyReportIdRef = useRef(null);
+  const lastNearbyCountRef = useRef(0);
 
   const [region, setRegion] = useState({
     latitude: -37.6402,
@@ -59,9 +61,6 @@ export default function MapScreen({
   const mapExpanded = true;
   const previewTopOffset = Math.max(insets.top + 72, 112);
   const bottomNavOffset = BOTTOM_NAV_RESERVED_SPACE + insets.bottom;
-
-  const profileDisplayName = authProfile?.display_name || 'Surfer';
-  const profileInitial = profileDisplayName?.[0]?.toUpperCase() || 'S';
 
   useEffect(() => {
     if (!selectedSpot || !mapRef.current) return;
@@ -109,12 +108,16 @@ export default function MapScreen({
     };
   }, []);
 
-  const refreshNearbyCommentAlerts = async (coords = userCoords, skipPushNotification = false) => {
-    if (!coords) return;
+  const refreshNearbyCommentAlerts = useCallback(async (coords = userCoords, skipPushNotification = false) => {
+    if (!coords) return [];
 
     const nextReports = await fetchCommunityReportsExcludingViewed();
 
     const filteredNearbyReports = (nextReports || []).filter((report) => {
+      if (authUser?.id && report?.reporterId && String(report.reporterId) === String(authUser.id)) {
+        return false;
+      }
+
       const spot = NZ_SPOTS.find(
         (item) => item.name.toLowerCase() === String(report.spotName || '').toLowerCase()
       );
@@ -131,13 +134,37 @@ export default function MapScreen({
       return distance <= NEARBY_COMMENT_RADIUS_M;
     });
 
-    setNearbyCommentCount(filteredNearbyReports.length);
+    const nextCount = filteredNearbyReports.length;
+    const newestNearby = filteredNearbyReports[0];
+
+    if (nextCount > 0) {
+      const countIncreased = nextCount > lastNearbyCountRef.current;
+      const newestChanged = newestNearby?.id && newestNearby.id !== lastNearbyReportIdRef.current;
+
+      if (countIncreased || newestChanged) {
+        Animated.sequence([
+          Animated.timing(bellAnim, {
+            toValue: 1,
+            duration: 120,
+            useNativeDriver: true,
+          }),
+          Animated.spring(bellAnim, {
+            toValue: 0,
+            friction: 4,
+            tension: 120,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    }
+
+    lastNearbyCountRef.current = nextCount;
+    setNearbyCommentCount(nextCount);
     setHasNearbyAlert(filteredNearbyReports.length > 0);
     setNearbyReports(filteredNearbyReports);
 
-    if (skipPushNotification) return;
+    if (skipPushNotification) return filteredNearbyReports;
 
-    const newestNearby = filteredNearbyReports[0];
     if (!newestNearby) return;
 
     if (!lastNearbyReportIdRef.current) {
@@ -152,7 +179,9 @@ export default function MapScreen({
     ) {
       lastNearbyReportIdRef.current = newestNearby.id;
     }
-  };
+
+    return filteredNearbyReports;
+  }, [authUser?.id, userCoords]);
 
   useEffect(() => {
     if (!userCoords) return;
@@ -167,12 +196,18 @@ export default function MapScreen({
 
     handleReportsUpdate();
     const unsubscribe = subscribeToCommunityReports(handleReportsUpdate);
+    const pollId = setInterval(() => {
+      if (mounted) {
+        refreshNearbyCommentAlerts(userCoords, true).catch(() => {});
+      }
+    }, 3000);
 
     return () => {
       mounted = false;
+      clearInterval(pollId);
       unsubscribe();
     };
-  }, [userCoords]);
+  }, [refreshNearbyCommentAlerts, userCoords]);
 
   useEffect(() => {
     let pulseLoop = null;
@@ -258,35 +293,24 @@ export default function MapScreen({
 
   const handleOpenCommunityFromProfile = () => {
     if (nearbyReports.length > 0) {
-      // Filtrar reportes de las últimas 3 horas
-      const threeHoursAgo = 180; // minutos
-      const reportsLast3Hours = nearbyReports.filter(
-        (report) => Number(report.minutesAgo || 999) <= threeHoursAgo
+      const nextPreviewReports = [...nearbyReports].sort(
+        (a, b) => Number(a.minutesAgo || 999) - Number(b.minutesAgo || 999)
       );
 
-      if (reportsLast3Hours.length > 0) {
-        setActiveReportsPreview(reportsLast3Hours);
-        // Detener la animación cuando se abre el preview
-        setHasNearbyAlert(false);
-      }
+      setActiveReportsPreview(nextPreviewReports);
+      setHasNearbyAlert(false);
     }
   };
 
   const handleReportPreviewPress = async (report) => {
-    const selectedSpot = NZ_SPOTS.find(
-      (spot) => spot.name.toLowerCase() === report.spotName.toLowerCase()
-    );
-    if (selectedSpot) {
-      onSpotSelect(selectedSpot);
-      setActiveReportsPreview([]);
-      // Marcar el reporte como visto en la base de datos
-      await markReportAsViewed(report.id);
-      // Refrescar reportes cercanos para quitar la animación si no hay más pendientes
-      setTimeout(() => {
-        refreshNearbyCommentAlerts(userCoords, true);
-      }, 300);
-      onOpenForecast();
-    }
+    setActiveReportsPreview([]);
+    // Marcar el reporte como visto en la base de datos
+    await markReportAsViewed(report.id);
+    // Refrescar reportes cercanos para quitar la animación si no hay más pendientes
+    setTimeout(() => {
+      refreshNearbyCommentAlerts(userCoords, true);
+    }, 300);
+    onOpenCommunity(report.spotName, report.id, report);
   };
 
   const handleCloseReportsPreview = () => {
@@ -314,20 +338,35 @@ export default function MapScreen({
                 {
                   opacity: profilePulseAnim.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [0, 0.55],
+                    outputRange: [0, 0.16],
                   }),
-                  transform: [
-                    {
-                      scale: profilePulseAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 1.28],
-                      }),
-                    },
-                  ],
                 },
               ]}
             />
-            <Text style={styles.profileInitialText}>{profileInitial}</Text>
+            <Animated.View
+              style={{
+                transform: [
+                  {
+                    scale: bellAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 1.18],
+                    }),
+                  },
+                  {
+                    rotate: bellAnim.interpolate({
+                      inputRange: [0, 0.25, 0.5, 0.75, 1],
+                      outputRange: ['0deg', '-12deg', '12deg', '-8deg', '0deg'],
+                    }),
+                  },
+                ],
+              }}
+            >
+              <Bell
+                size={16}
+                color={hasNearbyAlert ? '#0284C7' : UI_COLORS.textSecondary}
+                strokeWidth={2.3}
+              />
+            </Animated.View>
             {nearbyCommentCount > 0 ? (
               <View style={styles.profileNotificationDot}>
                 <Text style={styles.profileNotificationDotText}>
@@ -470,7 +509,8 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 6,
-    backgroundColor: UI_COLORS.accent,
+    backgroundColor: '#38BDF8',
+    borderWidth: 0,
   },
   profileInitialText: {
     color: UI_COLORS.textPrimary,
@@ -486,15 +526,15 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 4,
     paddingHorizontal: 4,
-    backgroundColor: UI_COLORS.accent,
+    backgroundColor: '#DC2626',
     borderWidth: 1,
-    borderColor: '#06210F',
+    borderColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 3,
   },
   profileNotificationDotText: {
-    color: '#07110B',
+    color: '#FFFFFF',
     fontSize: 9,
     fontWeight: '800',
   },

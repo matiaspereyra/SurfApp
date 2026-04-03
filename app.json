@@ -5,16 +5,20 @@
     "version": "1.0.0",
     "scheme": "surfapp",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/app-icon-ios.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/app-icon-ios.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "icon": "./assets/app-icon-ios.png",
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.SurfApp"
+      "bundleIdentifier": "com.matiaspereyra.surfapp.dev",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.anonymous.surfapp",
@@ -25,9 +29,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       }
     },
-    "plugins": [
-      "expo-notifications"
-    ],
+    "plugins": [],
     "web": {
       "favicon": "./assets/favicon.png"
     },

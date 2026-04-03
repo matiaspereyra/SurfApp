@@ -120,9 +120,11 @@ export default function AuthScreen() {
             value={email}
             onChangeText={setEmail}
             placeholder="tu@email.com"
-            placeholderTextColor="#5E6C7A"
+            placeholderTextColor="#6B7280"
             autoCapitalize="none"
             keyboardType="email-address"
+            cursorColor="#0C4A6E"
+            selectionColor="#0C4A6E"
             style={styles.input}
           />
         </View>
@@ -134,10 +136,12 @@ export default function AuthScreen() {
               value={otp}
               onChangeText={setOtp}
               placeholder="Codigo o token de email"
-              placeholderTextColor="#5E6C7A"
+              placeholderTextColor="#6B7280"
               keyboardType="default"
               autoCapitalize="none"
               autoCorrect={false}
+              cursorColor="#0C4A6E"
+              selectionColor="#0C4A6E"
               style={styles.input}
               maxLength={128}
             />
@@ -257,16 +261,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#0A151F',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#2D4C62',
+    borderColor: '#CBD5E1',
     borderRadius: UI_RADIUS.sm,
     paddingHorizontal: 10,
     height: 44,
   },
   input: {
     flex: 1,
-    color: UI_COLORS.textPrimary,
+    color: '#0F172A',
     fontSize: UI_TYPE.bodyMd,
   },
   primaryBtn: {

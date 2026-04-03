@@ -77,17 +77,43 @@ Deno.serve(async (req) => {
       auth: { persistSession: false },
     });
 
-    const { data: tokenRows, error: tokenError } = await admin
+    let activeForegroundUsers = new Set<string>();
+    try {
+      const { data: activePresenceRows, error: presenceError } = await admin
+        .from('push_presence')
+        .select('user_id, is_foreground, last_seen_at');
+
+      if (!presenceError) {
+        activeForegroundUsers = new Set(
+          (activePresenceRows || [])
+            .filter((row) => {
+              if (!row?.user_id || row.is_foreground !== true) return false;
+              const lastSeenAt = row.last_seen_at ? new Date(row.last_seen_at).getTime() : 0;
+              return Date.now() - lastSeenAt <= 60000;
+            })
+            .map((row) => String(row.user_id))
+        );
+      }
+    } catch (_error) {
+      activeForegroundUsers = new Set();
+    }
+
+    const { data: tokenOwnerRows, error: tokenOwnerError } = await admin
       .from('push_tokens')
-      .select('token')
+      .select('token, user_id')
       .neq('user_id', reporterId);
 
-    if (tokenError) {
-      return jsonResponse({ ok: false, error: tokenError.message }, 500);
+    if (tokenOwnerError) {
+      return jsonResponse({ ok: false, error: tokenOwnerError.message }, 500);
     }
 
     const allTokens = Array.from(
-      new Set((tokenRows || []).map((row) => String(row.token || '').trim()).filter(Boolean))
+      new Set(
+        (tokenOwnerRows || [])
+          .filter((row) => !activeForegroundUsers.has(String(row.user_id || '')))
+          .map((row) => String(row.token || '').trim())
+          .filter(Boolean)
+      )
     );
 
     if (!allTokens.length) {

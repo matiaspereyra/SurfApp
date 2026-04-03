@@ -1,64 +1,71 @@
+import { Platform } from 'react-native';
+import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import * as Device from 'expo-device';
 import { supabase } from '../lib/supabase';
-
-const UUID_V4_LIKE_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
     shouldShowList: true,
-    shouldPlaySound: false,
+    shouldPlaySound: true,
     shouldSetBadge: false,
   }),
 });
 
 export const requestPushPermission = async () => {
-  const current = await Notifications.getPermissionsAsync();
-  if (current.granted || current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) {
-    return true;
+  if (!Device.isDevice) {
+    return false;
   }
 
-  const request = await Notifications.requestPermissionsAsync();
-  return Boolean(
-    request.granted || request.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
-  );
+  try {
+    const settings = await Notifications.getPermissionsAsync();
+    let finalStatus = settings.status;
+
+    if (finalStatus !== 'granted') {
+      const requested = await Notifications.requestPermissionsAsync();
+      finalStatus = requested.status;
+    }
+
+    if (finalStatus !== 'granted') {
+      return false;
+    }
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#3A7CA5',
+      });
+    }
+
+    return true;
+  } catch (_error) {
+    return false;
+  }
 };
 
 export const getPushToken = async () => {
+  if (!Device.isDevice) {
+    return null;
+  }
+
+  const granted = await requestPushPermission();
+  if (!granted) {
+    return null;
+  }
+
   try {
-    if (!Device.isDevice) {
-      return null;
-    }
-
-    const hasPermission = await requestPushPermission();
-    if (!hasPermission) {
-      return null;
-    }
-
-    const rawProjectId =
+    const projectId =
       Constants?.expoConfig?.extra?.eas?.projectId ||
       Constants?.easConfig?.projectId;
-    const normalizedProjectId = String(rawProjectId || '').trim();
-    const projectId = UUID_V4_LIKE_REGEX.test(normalizedProjectId)
-      ? normalizedProjectId
-      : undefined;
 
-    if (!projectId) {
-      return null;
-    }
+    const tokenResponse = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined
+    );
 
-    const { data, error } = await Notifications.getExpoPushTokenAsync({ projectId });
-    if (error) {
-      return null;
-    }
-    if (!data) {
-      return null;
-    }
-
-    return data;
+    return tokenResponse?.data || null;
   } catch (_error) {
     return null;
   }
@@ -90,13 +97,32 @@ export const savePushTokenToDatabase = async (token) => {
   }
 };
 
+export const savePushPresenceToDatabase = async (isForeground) => {
+  if (!supabase) {
+    return false;
+  }
+
+  try {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError) return false;
+    if (!authData?.user?.id) {
+      return false;
+    }
+
+    const { error } = await supabase.rpc('save_push_presence', {
+      p_is_foreground: !!isForeground,
+    });
+
+    if (error) {
+      return false;
+    }
+
+    return true;
+  } catch (_error) {
+    return false;
+  }
+};
+
 export const sendMagicAlertNotification = async ({ title, body, data = {} }) => {
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title,
-      body,
-      data,
-    },
-    trigger: null,
-  });
+  return false;
 };

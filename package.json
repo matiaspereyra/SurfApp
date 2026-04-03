@@ -7,6 +7,8 @@
     "start:lan": "EXPO_NO_TELEMETRY=1 expo start --lan --clear",
     "start:localhost": "CI=1 EXPO_NO_TELEMETRY=1 expo start --localhost --clear",
     "start:tunnel": "EXPO_NO_TELEMETRY=1 expo start --tunnel --clear",
+    "build:ios:prod": "eas build --platform ios --profile production",
+    "ios:release": "expo run:ios --configuration Release",
     "open:ios-local": "xcrun simctl openurl booted exp://127.0.0.1:8081",
     "recover": "bash ./scripts/recover-expo.sh",
     "recover:ios": "bash ./scripts/recover-ios.sh",
@@ -21,7 +23,9 @@
     "expo": "^54.0.0",
     "expo-device": "~8.0.10",
     "expo-location": "~19.0.8",
+    "expo-manifests": "~1.0.10",
     "expo-notifications": "~0.32.16",
+    "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
     "lucide-react-native": "^1.7.0",
     "react": "19.1.0",
@@ -34,6 +38,7 @@
   "devDependencies": {
     "@expo/ngrok": "^4.1.3",
     "@types/react": "~19.1.10",
+    "eas-cli": "^18.5.0",
     "typescript": "~5.9.2"
   }
 }
