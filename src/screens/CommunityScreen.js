@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Plus, X } from 'lucide-react-native';
+import { Modal } from 'react-native';
 import * as Location from 'expo-location';
 import { NZ_SPOTS } from '../constants/Spots';
 import { formatRelativeMinutes } from '../lib/timeFormat';
 import { UI_COLORS, isCompactLayout } from '../theme/ui';
+import AppHeader from '../components/AppHeader';
 import {
   createCommunityReport,
   fetchCommunityReports,
@@ -91,8 +94,8 @@ export default function CommunityScreen({
   onBack,
   onOpenSpotForecast = () => {},
 }) {
-  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const compact = isCompactLayout(width);
   const [reports, setReports] = useState([]);
   const [reputationRows, setReputationRows] = useState([]);
@@ -368,21 +371,16 @@ export default function CommunityScreen({
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.header, compact ? styles.headerCompact : null]}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <View style={styles.iconFrame}>
-            <View style={[styles.iconStroke, styles.iconBackTop]} />
-            <View style={[styles.iconStroke, styles.iconBackBottom]} />
-          </View>
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, compact ? styles.headerTitleCompact : null]}>Community</Text>
-        <TouchableOpacity style={styles.headerAction} onPress={() => setShowPublishModal(true)}>
-          <View style={styles.iconFrame}>
-            <View style={[styles.iconStroke, styles.iconPlusH]} />
-            <View style={[styles.iconStroke, styles.iconPlusV]} />
-          </View>
-        </TouchableOpacity>
-      </View>
+      <AppHeader
+        title="Community"
+        compact
+        onBack={onBack}
+        rightElement={(
+          <TouchableOpacity style={styles.headerAction} onPress={() => setShowPublishModal(true)}>
+            <Plus size={18} color={UI_COLORS.textPrimary} strokeWidth={2} />
+          </TouchableOpacity>
+        )}
+      />
 
       <ScrollView contentContainerStyle={[styles.scrollContent, compact ? styles.scrollContentCompact : null]}>
         <View style={[styles.card, styles.reportsCard]}>
@@ -467,26 +465,58 @@ export default function CommunityScreen({
 
 
 
-      {showPublishModal && (
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity 
-            style={styles.modalBackdrop}
-            activeOpacity={1}
-            onPress={() => setShowPublishModal(false)}
+      <Modal
+        visible={showPublishModal}
+        transparent={false}
+        animationType="slide"
+        presentationStyle="formSheet"
+        onRequestClose={() => setShowPublishModal(false)}
+      >
+        <View style={[styles.publishModalContainer, { paddingTop: insets.top / 2 }]}>
+          <AppHeader
+            title="Publicar estado del spot"
+            subtitle="Comparte una lectura real del mar"
+            compact
+            skipSafeAreaOffset={true}
+            leftElement={(
+              <TouchableOpacity
+                style={styles.headerAction}
+                onPress={() => setShowPublishModal(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <X color={UI_COLORS.textPrimary} size={22} />
+              </TouchableOpacity>
+            )}
           />
-          <ScrollView style={styles.modalContent} contentContainerStyle={styles.modalContentInner}>
-            <View style={styles.card}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.cardTitle}>Publicar estado del spot</Text>
-                <TouchableOpacity onPress={() => setShowPublishModal(false)}>
-                  <View style={styles.closeIconFrame}>
-                    <View style={[styles.iconStroke, styles.iconCloseA]} />
-                    <View style={[styles.iconStroke, styles.iconCloseB]} />
-                  </View>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.cardHint}>Lista automatica de playas cercanas segun tu ubicacion actual.</Text>
 
+          <ScrollView
+            style={styles.publishModalScroll}
+            contentContainerStyle={[styles.publishModalContent, { paddingBottom: 120 + insets.bottom }]}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.publishIntroCard}>
+              <Text style={styles.publishIntroTitle}>Reporte en vivo</Text>
+              <Text style={styles.cardHint}>Lista automatica de playas cercanas segun tu ubicacion actual.</Text>
+              <View style={styles.publishStatusRow}>
+                <View style={[styles.gpsStatus, canReportFromHere ? styles.gpsStatusOn : styles.gpsStatusOff]}>
+                  <Text style={[styles.gpsStatusText, canReportFromHere ? styles.gpsStatusTextOn : null]}>
+                    {locationStatus !== 'ready'
+                      ? 'Ubicacion pendiente'
+                      : canReportFromHere
+                        ? `Puedes reportar en ${selectedSpotName} (${(selectedSpotDistance / 1000).toFixed(1)} km)`
+                        : nearbySpots.length
+                          ? `Muy lejos para reportar (${selectedSpotDistance ? (selectedSpotDistance / 1000).toFixed(1) : '--'} km)`
+                          : 'No hay playas cercanas dentro del radio permitido'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.publishSection}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionLabel}>Playa</Text>
+                <Text style={styles.sectionHelper}>elige el spot más cercano</Text>
+              </View>
               <View style={styles.spotPickerWrap}>
                 {nearbySpots.map((item) => {
                   const selected = item.spot.name === selectedSpotName;
@@ -507,19 +537,13 @@ export default function CommunityScreen({
               {!nearbySpots.length ? (
                 <Text style={styles.feedbackText}>No hay spots cercanos disponibles para tu ubicacion.</Text>
               ) : null}
+            </View>
 
-              <View style={[styles.gpsStatus, canReportFromHere ? styles.gpsStatusOn : styles.gpsStatusOff]}>
-                <Text style={[styles.gpsStatusText, canReportFromHere ? styles.gpsStatusTextOn : null]}>
-                  {locationStatus !== 'ready'
-                    ? 'Ubicacion pendiente'
-                    : canReportFromHere
-                      ? `Puedes reportar en ${selectedSpotName} (${(selectedSpotDistance / 1000).toFixed(1)} km)`
-                      : nearbySpots.length
-                        ? `Muy lejos para reportar (${selectedSpotDistance ? (selectedSpotDistance / 1000).toFixed(1) : '--'} km)`
-                        : 'No hay playas cercanas dentro del radio permitido'}
-                </Text>
+            <View style={styles.publishSection}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionLabel}>Comentario</Text>
+                <Text style={styles.sectionHelper}>cuenta cómo está realmente</Text>
               </View>
-
               <TextInput
                 value={newReportText}
                 onChangeText={setNewReportText}
@@ -528,7 +552,13 @@ export default function CommunityScreen({
                 placeholderTextColor="#5E6C7A"
                 multiline
               />
+            </View>
 
+            <View style={styles.publishSection}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionLabel}>Rating</Text>
+                <Text style={styles.sectionHelper}>elige la calidad general</Text>
+              </View>
               <View style={styles.ratingPickerWrap}>
                 {USER_RATING_OPTIONS.map((value) => {
                   const active = value === selectedUserRating;
@@ -543,20 +573,22 @@ export default function CommunityScreen({
                   );
                 })}
               </View>
-
-              <TouchableOpacity
-                style={[styles.publishBtn, publishing ? styles.publishBtnDisabled : null]}
-                onPress={handlePublish}
-                disabled={publishing}
-              >
-                <Text style={styles.publishBtnText}>{publishing ? 'Publicando...' : 'Publicar reporte'}</Text>
-              </TouchableOpacity>
-
-              {feedback ? <Text style={styles.feedbackText}>{feedback}</Text> : null}
             </View>
+
+            {feedback ? <Text style={styles.feedbackText}>{feedback}</Text> : null}
           </ScrollView>
+
+          <View style={[styles.publishModalFooter, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
+            <TouchableOpacity
+              style={[styles.publishBtn, styles.publishBtnFullWidth, publishing ? styles.publishBtnDisabled : null]}
+              onPress={handlePublish}
+              disabled={publishing}
+            >
+              <Text style={styles.publishBtnText}>{publishing ? 'Publicando...' : 'Publicar reporte'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      )}
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -564,84 +596,13 @@ export default function CommunityScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: UI_COLORS.appBg,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginHorizontal: 10,
-    marginTop: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
     backgroundColor: UI_COLORS.panel,
-    borderWidth: 1,
-    borderColor: UI_COLORS.panelBorder,
-    borderRadius: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: UI_COLORS.panelBorder,
   },
-  headerCompact: {
-    marginHorizontal: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-  },
-  backBtn: {
+  headerAction: {
     width: 28,
     height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  headerTitle: {
-    color: UI_COLORS.textPrimary,
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: 0.3,
-  },
-  headerTitleCompact: {
-    fontSize: 15,
-  },
-  headerAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: UI_COLORS.panelStrong,
-    borderWidth: 1,
-    borderColor: UI_COLORS.panelBorder,
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-  },
-  headerActionText: {
-    color: UI_COLORS.textPrimary,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  iconFrame: {
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconStroke: {
-    position: 'absolute',
-    width: 12,
-    height: 2,
-    borderRadius: 2,
-    backgroundColor: UI_COLORS.textPrimary,
-  },
-  iconBackTop: {
-    transform: [{ rotate: '-40deg' }, { translateX: -2 }, { translateY: -3 }],
-  },
-  iconBackBottom: {
-    transform: [{ rotate: '40deg' }, { translateX: -2 }, { translateY: 3 }],
-  },
-  iconPlusH: {
-    width: 12,
-  },
-  iconPlusV: {
-    width: 2,
-    height: 12,
   },
   reportsCard: {
     minHeight: 240,
@@ -966,49 +927,73 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'flex-start',
-    paddingTop: 60,
-    zIndex: 101,
-    pointerEvents: 'box-none',
-  },
-  modalBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    zIndex: 100,
-  },
-  modalContent: {
+  publishModalContainer: {
+    flex: 1,
     backgroundColor: UI_COLORS.panel,
-    borderRadius: 4,
+  },
+  publishModalScroll: {
+    flex: 1,
+  },
+  publishModalContent: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 18,
+    gap: 14,
+  },
+  publishIntroCard: {
+    backgroundColor: UI_COLORS.panel,
     borderWidth: 1,
     borderColor: UI_COLORS.panelBorder,
-    maxHeight: '75%',
-    marginHorizontal: 10,
-    zIndex: 101,
-    pointerEvents: 'auto',
+    borderRadius: 6,
+    padding: 14,
+    gap: 8,
   },
-  modalContentInner: {
-    paddingHorizontal: 14,
-    paddingVertical: 16,
+  publishIntroTitle: {
+    color: UI_COLORS.textPrimary,
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
-  modalHeader: {
+  publishStatusRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  publishSection: {
+    backgroundColor: UI_COLORS.panel,
+    borderWidth: 1,
+    borderColor: UI_COLORS.panelBorder,
+    borderRadius: 6,
+    padding: 12,
+    gap: 10,
+  },
+  sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingBottom: 10,
+    alignItems: 'baseline',
+    gap: 8,
   },
-  modalCloseBtn: {
-    color: UI_COLORS.textPrimary,
-    fontSize: 24,
-    fontWeight: '600',
+  sectionLabel: {
+    color: UI_COLORS.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  sectionHelper: {
+    color: UI_COLORS.textSecondary,
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  publishModalFooter: {
+    borderTopWidth: 1,
+    borderTopColor: UI_COLORS.panelBorder,
+    backgroundColor: UI_COLORS.appBg,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  publishBtnFullWidth: {
+    width: '100%',
   },
 });

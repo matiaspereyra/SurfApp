@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { ChevronLeft } from 'lucide-react-native';
 import { updateUserProfile } from '../services/profileService';
 import { signOutUser } from '../services/authService';
 import { UI_COLORS, UI_RADIUS } from '../theme/ui';
+import AppHeader from '../components/AppHeader';
 
 export default function SettingsScreen({ authUser, authProfile, onBack, onProfileUpdated }) {
   const [profileName, setProfileName] = useState(authProfile?.display_name || '');
@@ -58,19 +58,7 @@ export default function SettingsScreen({ authUser, authProfile, onBack, onProfil
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.atmosphereOne} pointerEvents="none" />
-      <View style={styles.atmosphereTwo} pointerEvents="none" />
-
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={onBack}>
-          <ChevronLeft color="#FFFFFF" size={22} />
-        </TouchableOpacity>
-        <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>SETTINGS</Text>
-          <Text style={styles.headerSubtitle}>ACCOUNT PANEL</Text>
-        </View>
-        <View style={{ width: 28 }} />
-      </View>
+      <AppHeader title="Settings" subtitle="ACCOUNT PANEL" compact onBack={onBack} />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
@@ -111,64 +99,7 @@ export default function SettingsScreen({ authUser, authProfile, onBack, onProfil
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: UI_COLORS.appBg,
-  },
-  atmosphereOne: {
-    position: 'absolute',
-    top: -120,
-    right: -80,
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    backgroundColor: '#0D3147',
-    opacity: 0.24,
-  },
-  atmosphereTwo: {
-    position: 'absolute',
-    bottom: -130,
-    left: -100,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: '#0A2436',
-    opacity: 0.3,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginHorizontal: 10,
-    marginTop: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
     backgroundColor: UI_COLORS.panel,
-    borderWidth: 1,
-    borderColor: UI_COLORS.panelBorder,
-    borderRadius: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: UI_COLORS.panelBorder,
-  },
-  backBtn: {
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitleWrap: {
-    alignItems: 'center',
-    gap: 2,
-  },
-  headerTitle: {
-    color: UI_COLORS.textPrimary,
-    fontSize: 15,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  headerSubtitle: {
-    color: UI_COLORS.textSecondary,
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.9,
   },
   scrollContent: {
     padding: 14,

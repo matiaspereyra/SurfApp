@@ -1,11 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronRight, Waves } from 'lucide-react-native';
 import { SURFLINE_COLORS, getSpotShowName } from '../constants/Spots';
 
 export const SpotQuickCard = ({ spot, onOpenForecast }) => {
   if (!spot) return null;
 
+  const insets = useSafeAreaInsets();
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(42)).current;
   const scale = useRef(new Animated.Value(0.96)).current;
@@ -45,6 +47,7 @@ export const SpotQuickCard = ({ spot, onOpenForecast }) => {
       style={[
         styles.wrapper,
         {
+          bottom: 120 + insets.bottom + 4,
           opacity,
           transform: [{ translateY }, { scale }],
         },
@@ -79,7 +82,6 @@ export const SpotQuickCard = ({ spot, onOpenForecast }) => {
 const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
-    bottom: 86,
     left: 20,
     right: 20,
     zIndex: 9999,

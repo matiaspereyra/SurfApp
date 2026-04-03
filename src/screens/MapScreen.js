@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView from 'react-native-maps';
 import * as Location from 'expo-location';
-import { LocateFixed, Minus, Plus } from 'lucide-react-native';
+import { LocateFixed, Search } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SpotMarker } from '../components/SpotMarker';
 import { CompactReportsPreview } from '../components/CompactReportsPreview';
@@ -48,8 +48,8 @@ export default function MapScreen({
   const [region, setRegion] = useState({
     latitude: -37.6402,
     longitude: 176.1845,
-    latitudeDelta: 0.14,
-    longitudeDelta: 0.14,
+    latitudeDelta: 0.08,
+    longitudeDelta: 0.08,
   });
   const [userCoords, setUserCoords] = useState(null);
   const [hasNearbyAlert, setHasNearbyAlert] = useState(false);
@@ -220,18 +220,6 @@ export default function MapScreen({
       ? [...visibleSpots, selectedSpot]
       : visibleSpots;
 
-  const handleZoom = (type) => {
-    const factor = type === 'in' ? 0.5 : 2;
-    const newRegion = {
-      ...region,
-      latitudeDelta: region.latitudeDelta * factor,
-      longitudeDelta: region.longitudeDelta * factor,
-    };
-
-    setRegion(newRegion);
-    mapRef.current?.animateToRegion(newRegion, 450);
-  };
-
   const handleLocateMe = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -307,7 +295,7 @@ export default function MapScreen({
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 6 }]}> 
         <View style={styles.headerRow}>
           <View style={styles.headerTextWrap}>
             <Text style={styles.greeting} numberOfLines={1}>
@@ -386,18 +374,12 @@ export default function MapScreen({
           ))}
         </MapView>
 
-        <View style={[styles.controls, { bottom: bottomNavOffset + 8 }]}>
-          <View style={styles.spotCountBadge}>
-            <Text style={styles.spotCountText}>{visibleSpots.length} visibles</Text>
-          </View>
-          <TouchableOpacity style={styles.btn} onPress={() => handleZoom('in')}>
-            <Plus color="white" size={20} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.btn} onPress={() => handleZoom('out')}>
-            <Minus color="white" size={20} />
+        <View style={[styles.controls, { bottom: bottomNavOffset + 200 }]}>
+          <TouchableOpacity style={styles.btn} onPress={() => {}}>
+            <Search color="#8E9196" size={20} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.btn} onPress={handleLocateMe}>
-            <LocateFixed color="white" size={20} />
+            <LocateFixed color="#8E9196" size={20} />
           </TouchableOpacity>
         </View>
       </Animated.View>
@@ -429,23 +411,23 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    marginHorizontal: 10,
-    marginTop: 8,
+    marginHorizontal: 0,
+    marginTop: 0,
     paddingHorizontal: 12,
-    paddingTop: 56,
-    paddingBottom: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
     backgroundColor: UI_COLORS.panel,
-    borderWidth: 1,
-    borderColor: UI_COLORS.panelBorder,
-    borderRadius: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: UI_COLORS.panelBorder,
+    borderWidth: 0,
+    borderColor: 'transparent',
+    borderRadius: 0,
+    borderBottomWidth: 0,
+    borderBottomColor: 'transparent',
     zIndex: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   headerRow: {
     flexDirection: 'row',
@@ -458,14 +440,14 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   greeting: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
     color: UI_COLORS.textPrimary,
-    marginBottom: 2,
+    marginBottom: 0,
     letterSpacing: 0.3,
   },
   subtext: {
-    fontSize: 11,
+    fontSize: 10,
     color: UI_COLORS.textSecondary,
     fontWeight: '700',
     letterSpacing: 0.6,
@@ -570,38 +552,18 @@ const styles = StyleSheet.create({
     bottom: 88,
     alignItems: 'center',
     gap: 7,
-    backgroundColor: UI_COLORS.panel,
-    borderRadius: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderWidth: 1,
-    borderColor: UI_COLORS.panelBorder,
   },
   btn: {
     width: 42,
     height: 42,
     borderRadius: 4,
-    backgroundColor: UI_COLORS.panelStrong,
+    backgroundColor: '#E5E7EB',
     borderWidth: 1,
-    borderColor: UI_COLORS.panelBorderSoft,
+    borderColor: '#D1D5DB',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  spotCountBadge: {
-    backgroundColor: UI_COLORS.panelStrong,
-    borderWidth: 1,
-    borderColor: UI_COLORS.panelBorderSoft,
-    borderRadius: 3,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  spotCountText: {
-    color: UI_COLORS.textPrimary,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-  },
+
   closeMapButton: {
     position: 'absolute',
     top: 62,

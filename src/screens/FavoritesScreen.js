@@ -1,22 +1,33 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Animated, PanResponder, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, PanResponder, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Heart, MapPin } from 'lucide-react-native';
 import { NZ_SPOTS, getSpotShowName } from '../constants/Spots';
 import { UI_COLORS, UI_RADIUS, isCompactLayout } from '../theme/ui';
+import AppHeader from '../components/AppHeader';
 
 const SWIPE_OPEN_X = -96;
 const SWIPE_OPEN_THRESHOLD = -48;
 
 function FavoriteSpotRow({ spot, isOpen, onRequestOpen, onRequestClose, onOpenSpot, onRemoveFavorite }) {
   const translateX = useRef(new Animated.Value(0)).current;
+  const deleteOpacity = translateX.interpolate({
+    inputRange: [SWIPE_OPEN_X, -32, 0],
+    outputRange: [1, 0.45, 0],
+    extrapolate: 'clamp',
+  });
+  const deleteScale = translateX.interpolate({
+    inputRange: [SWIPE_OPEN_X, -32, 0],
+    outputRange: [1, 0.96, 0.92],
+    extrapolate: 'clamp',
+  });
 
   useEffect(() => {
-    Animated.spring(translateX, {
+    Animated.timing(translateX, {
       toValue: isOpen ? SWIPE_OPEN_X : 0,
+      duration: 210,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
-      friction: 10,
-      tension: 70,
     }).start();
   }, [isOpen, translateX]);
 
@@ -55,10 +66,12 @@ function FavoriteSpotRow({ spot, isOpen, onRequestOpen, onRequestClose, onOpenSp
   const today = spot.forecast?.[0];
 
   return (
-    <View style={styles.rowWrap}>
-      <TouchableOpacity style={styles.deleteAction} onPress={() => onRemoveFavorite?.(spot.name)}>
+    <View style={[styles.rowWrap, isOpen ? styles.rowWrapOpen : null]}>
+      <Animated.View style={[styles.deleteActionWrap, { opacity: deleteOpacity, transform: [{ scale: deleteScale }] }]}>
+        <TouchableOpacity style={styles.deleteAction} onPress={() => onRemoveFavorite?.(spot.name)}>
         <Text style={styles.deleteActionText}>Eliminar</Text>
-      </TouchableOpacity>
+        </TouchableOpacity>
+      </Animated.View>
 
       <Animated.View style={[styles.cardAnimated, { transform: [{ translateX }] }]} {...panResponder.panHandlers}>
         <TouchableOpacity
@@ -116,27 +129,32 @@ export default function FavoritesScreen({ favoriteSpotNames = [], onOpenSpot, on
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.atmosphereOne} pointerEvents="none" />
+      <AppHeader
+        title="Favoritos"
+        subtitle="Tus spots guardados para acceso rapido"
+        compact
+      />
 
-      <View style={[styles.header, compact ? styles.headerCompact : null]}>
-        <Text style={[styles.title, compact ? styles.titleCompact : null]}>Favoritos</Text>
-        <Text style={styles.subtitle}>Tus spots guardados para acceso rapido</Text>
-      </View>
+      <Animated.ScrollView
+        style={{ opacity: contentOpacity }}
+        contentContainerStyle={[styles.scrollContent, compact ? styles.scrollContentCompact : null]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Pressable style={styles.listTapArea} onPress={() => openSpotName && setOpenSpotName('')}>
+          {favorites.map((spot) => (
+            <FavoriteSpotRow
+              key={spot.id}
+              spot={spot}
+              isOpen={openSpotName === spot.name}
+              onRequestOpen={setOpenSpotName}
+              onRequestClose={() => setOpenSpotName('')}
+              onOpenSpot={onOpenSpot}
+              onRemoveFavorite={onRemoveFavorite}
+            />
+          ))}
 
-      <Animated.ScrollView style={{ opacity: contentOpacity }} contentContainerStyle={[styles.scrollContent, compact ? styles.scrollContentCompact : null]}>
-        {favorites.map((spot) => (
-          <FavoriteSpotRow
-            key={spot.id}
-            spot={spot}
-            isOpen={openSpotName === spot.name}
-            onRequestOpen={setOpenSpotName}
-            onRequestClose={() => setOpenSpotName('')}
-            onOpenSpot={onOpenSpot}
-            onRemoveFavorite={onRemoveFavorite}
-          />
-        ))}
-
-        {!favorites.length ? <Text style={styles.emptyText}>No tienes spots favoritos todavia.</Text> : null}
+          {!favorites.length ? <Text style={styles.emptyText}>No tienes spots favoritos todavia.</Text> : null}
+        </Pressable>
       </Animated.ScrollView>
     </SafeAreaView>
   );
@@ -145,52 +163,14 @@ export default function FavoritesScreen({ favoriteSpotNames = [], onOpenSpot, on
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: UI_COLORS.appBg,
-  },
-  atmosphereOne: {
-    position: 'absolute',
-    top: -130,
-    right: -80,
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: '#0D2A3C',
-    opacity: 0.3,
-  },
-  header: {
-    marginHorizontal: 12,
-    marginTop: 8,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 12,
-    backgroundColor: 'rgba(8, 20, 30, 0.78)',
-    borderWidth: 1,
-    borderColor: UI_COLORS.panelBorderSoft,
-    borderRadius: UI_RADIUS.md,
-    borderBottomWidth: 1,
-    borderBottomColor: UI_COLORS.panelBorderSoft,
-  },
-  headerCompact: {
-    marginHorizontal: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-  },
-  title: {
-    color: UI_COLORS.textPrimary,
-    fontSize: 24,
-    fontWeight: '900',
-  },
-  titleCompact: {
-    fontSize: 20,
-  },
-  subtitle: {
-    color: UI_COLORS.textSecondary,
-    fontSize: 12,
-    marginTop: 2,
+    backgroundColor: UI_COLORS.panel,
   },
   scrollContent: {
     padding: 16,
     paddingBottom: 120,
+    gap: 12,
+  },
+  listTapArea: {
     gap: 12,
   },
   scrollContentCompact: {
@@ -203,12 +183,21 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: UI_COLORS.panel,
   },
-  deleteAction: {
+  rowWrapOpen: {
+    zIndex: 4,
+  },
+  deleteActionWrap: {
     position: 'absolute',
     right: 0,
     top: 0,
     bottom: 0,
     width: 96,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteAction: {
+    width: 96,
+    height: '100%',
     backgroundColor: UI_COLORS.danger,
     alignItems: 'center',
     justifyContent: 'center',

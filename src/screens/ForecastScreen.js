@@ -4,7 +4,8 @@ import {
   Animated, Modal, PanResponder, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft, Wind, Waves, Thermometer, Clock, X, ArrowUp, Heart, Bell } from 'lucide-react-native';
+import { Wind, Waves, Thermometer, Clock, X, ArrowUp, Heart, Bell } from 'lucide-react-native';
+import AppHeader from '../components/AppHeader';
 import { SURFLINE_COLORS, getSpotShowName } from '../constants/Spots';
 import { fetchSpotForecastByName } from '../services/forecastService';
 import { getAlertRule, upsertAlertRule } from '../services/alertRuleService';
@@ -105,6 +106,16 @@ const formatShortDate = (dateKey) => {
     day: 'numeric',
     month: 'short',
   });
+};
+
+const formatHeightRangeMeters = (heightValue) => {
+  if (heightValue === null || heightValue === undefined) return '--';
+  const raw = String(heightValue).trim();
+  if (!raw || raw === '--') return '--';
+
+  // If there is already a unit, keep it unchanged.
+  if (/(m|ft|pies|metros)/i.test(raw)) return raw;
+  return `${raw} m`;
 };
 
 // Pantalla Modal de Detalles del Día
@@ -312,6 +323,9 @@ export default function ForecastScreen({
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const { width: screenWidth } = useWindowDimensions();
   const compact = isCompactLayout(screenWidth);
+  const spotTitle = getSpotShowName(spot);
+  const isVeryLongTitle = spotTitle.length > 22;
+  const isLongTitle = spotTitle.length > 16;
 
   useEffect(() => {
     Animated.timing(contentOpacity, {
@@ -382,6 +396,7 @@ export default function ForecastScreen({
   const displaySpot = liveSpot;
   const displayForecast = displaySpot?.forecast || [];
   const heroColor = SURFLINE_COLORS[displaySpot?.rating] || SURFLINE_COLORS.FAIR;
+  const heroHeightLabel = formatHeightRangeMeters(displaySpot?.height);
   const hasLiveForecast = Boolean(displaySpot && displayForecast.length);
   const hourlyForecastByDay = displayForecast
     .slice(0, 16)
@@ -461,36 +476,39 @@ export default function ForecastScreen({
       <View style={styles.atmosphereTwo} pointerEvents="none" />
 
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <ChevronLeft color="white" size={28} />
-        </TouchableOpacity>
-          <Text style={[styles.headerTitle, compact ? styles.headerTitleCompact : null]}>{getSpotShowName(spot)}</Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            onPress={handleToggleSpotAlert}
-            style={styles.actionButton}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Bell
-              color={isSpotAlertOn ? '#FFB100' : savingSpotAlert ? '#627486' : '#8EA2B8'}
-              size={22}
-              fill={isSpotAlertOn ? '#FFB100' : 'transparent'}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleToggleFavorite}
-            style={styles.actionButton}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Heart
-              color={isFavorite ? '#00D15D' : '#8EA2B8'}
-              size={22}
-              fill={isFavorite ? '#00D15D' : 'transparent'}
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <AppHeader
+        title={spotTitle}
+        compact={compact}
+        sideSlotWidth={84}
+        titleStyle={isVeryLongTitle ? styles.headerTitleVeryLong : isLongTitle ? styles.headerTitleLong : null}
+        onBack={onBack}
+        rightElement={(
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              onPress={handleToggleSpotAlert}
+              style={styles.actionButton}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Bell
+                color={isSpotAlertOn ? '#FFB100' : savingSpotAlert ? '#627486' : '#8EA2B8'}
+                size={20}
+                fill={isSpotAlertOn ? '#FFB100' : 'transparent'}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleToggleFavorite}
+              style={styles.actionButton}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Heart
+                color={isFavorite ? '#00D15D' : '#8EA2B8'}
+                size={20}
+                fill={isFavorite ? '#00D15D' : 'transparent'}
+              />
+            </TouchableOpacity>
+          </View>
+        )}
+      />
 
       <Animated.ScrollView
         contentContainerStyle={styles.scroll}
@@ -510,7 +528,7 @@ export default function ForecastScreen({
               </View>
               <Text style={styles.liveTag}>LIVE</Text>
             </View>
-            <Text style={[styles.height, compact ? styles.heightCompact : null]}>{displaySpot?.height || '--'}</Text>
+            <Text style={[styles.waveHeightValue, compact ? styles.waveHeightValueCompact : null]}>{heroHeightLabel}</Text>
             <View style={styles.metricsRow}>
               <View style={styles.metricPill}>
                 <Waves size={14} color="#46D7FF" />
@@ -714,7 +732,7 @@ export default function ForecastScreen({
 
 const styles = StyleSheet.create({
   // Container
-  container: { flex: 1, backgroundColor: '#02070B' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
   atmosphereOne: {
     position: 'absolute',
     top: -140,
@@ -723,7 +741,7 @@ const styles = StyleSheet.create({
     height: 320,
     borderRadius: 160,
     backgroundColor: '#0D3147',
-    opacity: 0.28,
+    opacity: 0,
   },
   atmosphereTwo: {
     position: 'absolute',
@@ -733,28 +751,10 @@ const styles = StyleSheet.create({
     height: 360,
     borderRadius: 180,
     backgroundColor: '#0A2436',
-    opacity: 0.38,
+    opacity: 0,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginHorizontal: 10,
-    marginTop: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E4E63',
-    alignItems: 'center',
-    backgroundColor: 'rgba(4, 18, 28, 0.9)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#1E4E63',
-  },
-  headerTitle: { color: '#EAF8FF', fontSize: 17, fontWeight: '900', letterSpacing: 0.3 },
-  headerTitleCompact: { fontSize: 16 },
-  backButton: { padding: 6 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  actionButton: { padding: 6, minWidth: 28, alignItems: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'flex-end' },
+  actionButton: { padding: 4, minWidth: 24, alignItems: 'center' },
   scroll: { paddingBottom: 48 },
 
   // Hero
@@ -770,14 +770,14 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 16,
     alignItems: 'center',
-    backgroundColor: '#061723',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#1E4E63',
-    shadowColor: '#000000',
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.32,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   heroCardCompact: {
     paddingVertical: 14,
@@ -802,25 +802,25 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   liveTag: {
-    color: '#8CF1B9',
+    color: '#2F5D8A',
     fontSize: 10,
     fontWeight: '800',
     borderWidth: 1,
-    borderColor: '#2A7652',
+    borderColor: '#BFDBFE',
     borderRadius: 2,
     paddingHorizontal: 7,
     paddingVertical: 3,
-    backgroundColor: '#123425',
+    backgroundColor: '#EFF6FF',
     letterSpacing: 0.8,
   },
-  height: {
-    color: '#FFFFFF',
-    fontSize: 64,
+  waveHeightValue: {
+    color: '#0F172A',
+    fontSize: 36,
     fontWeight: '900',
-    letterSpacing: -1.5,
+    letterSpacing: -0.4,
   },
-  heightCompact: {
-    fontSize: 56,
+  waveHeightValueCompact: {
+    fontSize: 32,
   },
   metricsRow: {
     marginTop: 10,
@@ -831,9 +831,9 @@ const styles = StyleSheet.create({
   },
   metricPill: {
     flex: 1,
-    backgroundColor: '#04111A',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#18445A',
+    borderColor: '#E2E8F0',
     borderRadius: 6,
     paddingVertical: 8,
     paddingHorizontal: 8,
@@ -841,21 +841,21 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   metricPillLabel: {
-    color: '#5F8DA5',
+    color: '#64748B',
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.7,
   },
   metricPillValue: {
-    color: '#DBF4FF',
+    color: '#0F172A',
     fontSize: 13,
     fontWeight: '800',
   },
-  liveHint: { color: '#9DB8CA', fontSize: 12, marginTop: 10 },
+  liveHint: { color: '#64748B', fontSize: 12, marginTop: 10 },
 
   // Forecast Table (Horizontal)
   sectionTitle: {
-    color: '#7EB3CB',
+    color: '#334155',
     fontSize: 11,
     fontWeight: '900',
     paddingHorizontal: 18,
@@ -868,6 +868,14 @@ const styles = StyleSheet.create({
     marginTop: 18,
     marginBottom: 10,
     fontSize: 10,
+  },
+  headerTitleLong: {
+    fontSize: 14,
+    letterSpacing: 0.1,
+  },
+  headerTitleVeryLong: {
+    fontSize: 12,
+    letterSpacing: 0,
   },
   tableContainer: {
     marginHorizontal: 0,
@@ -887,27 +895,27 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     borderColor: 'transparent',
     borderRadius: 0,
-    backgroundColor: '#04111A',
+    backgroundColor: '#FFFFFF',
     overflow: 'visible',
   },
   dayHourlyHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#1E2229',
+    backgroundColor: '#F8FAFC',
     borderBottomWidth: 1,
-    borderBottomColor: '#343A46',
+    borderBottomColor: '#E2E8F0',
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
   dayHourlyTitle: {
-    color: '#F1F5F9',
+    color: '#0F172A',
     fontSize: 13,
     fontWeight: '900',
     textTransform: 'capitalize',
   },
   dayHourlySub: {
-    color: '#C2CBD7',
+    color: '#475569',
     fontSize: 11,
     fontWeight: '800',
   },
@@ -921,9 +929,9 @@ const styles = StyleSheet.create({
   },
   tableHeaderRow: {
     flexDirection: 'row',
-    backgroundColor: '#40B6E2',
+    backgroundColor: '#EEF2F7',
     borderBottomWidth: 1,
-    borderBottomColor: '#2FA0CA',
+    borderBottomColor: '#D9E2EC',
   },
   tableDataRow: {
     flexDirection: 'row',
@@ -966,19 +974,19 @@ const styles = StyleSheet.create({
     flex: 2.1,
   },
   headerHourCell: {
-    backgroundColor: '#3B434D',
+    backgroundColor: '#E2E8F0',
   },
   headerMainCell: {
-    backgroundColor: '#40B6E2',
+    backgroundColor: '#EEF2F7',
   },
   tableHeader: {
-    color: '#F7FBFF',
+    color: '#334155',
     fontSize: 11,
     fontWeight: '900',
     letterSpacing: 0.4,
   },
   tableDayText: {
-    color: '#E5F6FF',
+    color: '#334155',
     fontSize: 11,
     fontWeight: '800',
   },
@@ -1002,7 +1010,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   surfMetricValue: {
-    color: '#FFFFFF',
+    color: '#0F172A',
     fontSize: 15,
     fontWeight: '900',
   },
@@ -1012,7 +1020,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   surfUnitSmall: {
-    color: '#E8F6FF',
+    color: '#334155',
     fontSize: 10,
     fontWeight: '700',
   },
@@ -1037,7 +1045,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EDF2F7',
   },
   surfBandCell: {
-    backgroundColor: '#38B5E8',
+    backgroundColor: '#F1F5F9',
   },
   swellBandCell: {
     backgroundColor: '#F8FAFC',
@@ -1055,7 +1063,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   starLine: {
-    color: '#6EC5EA',
+    color: '#475569',
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0.5,
@@ -1068,7 +1076,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingVertical: 0,
     borderLeftWidth: 1,
-    borderLeftColor: 'rgba(255,255,255,0.2)',
+    borderLeftColor: 'rgba(15,23,42,0.08)',
   },
   windMainInfo: {
     flex: 1,
@@ -1076,7 +1084,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     gap: 2,
     borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.22)',
+    borderRightColor: 'rgba(15,23,42,0.10)',
   },
   windInlineRow: {
     marginTop: 2,
@@ -1088,19 +1096,19 @@ const styles = StyleSheet.create({
     width: 44,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(15,23,42,0.04)',
     borderLeftWidth: 1,
-    borderLeftColor: 'rgba(255,255,255,0.32)',
+    borderLeftColor: 'rgba(15,23,42,0.10)',
   },
   windArrowPanelEven: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(15,23,42,0.02)',
   },
   windDirectionLine: {
-    color: '#F5F9FF',
+    color: '#0F172A',
     fontSize: 10,
     fontWeight: '700',
   },
-  emptyForecastText: { color: '#8EA2B8', fontSize: 13, paddingHorizontal: 8, paddingVertical: 8 },
+  emptyForecastText: { color: '#64748B', fontSize: 13, paddingHorizontal: 8, paddingVertical: 8 },
 
   tableHourText: {
     color: '#495867',
@@ -1121,7 +1129,7 @@ const styles = StyleSheet.create({
   // Modal
   modalContainer: {
     flex: 1,
-    backgroundColor: '#050B12',
+    backgroundColor: '#FFFFFF',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1130,17 +1138,17 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingTop: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A1F26',
+    borderBottomColor: '#E2E8F0',
   },
   closeButton: {
     padding: 6,
   },
-  modalTitle: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+  modalTitle: { color: '#0F172A', fontSize: 18, fontWeight: 'bold' },
   modalContent: { paddingHorizontal: 20, paddingVertical: 20 },
 
   // Info Cards
   infoCard: {
-    backgroundColor: '#161B22',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderRadius: 12,
     padding: 16,
@@ -1170,7 +1178,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 8,
   },
-  infoValue: { color: 'white', fontSize: 20, fontWeight: 'bold' },
+  infoValue: { color: '#0F172A', fontSize: 20, fontWeight: 'bold' },
   infoSmall: { color: '#8E9196', fontSize: 11, marginTop: 4 },
 
   swellDetails: {
@@ -1186,7 +1194,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    backgroundColor: '#0A0F16',
+    backgroundColor: '#F8FAFC',
     borderRadius: 8,
     padding: 8,
     marginVertical: 16,
@@ -1210,10 +1218,10 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#00D15D',
     borderWidth: 2,
-    borderColor: 'white',
+    borderColor: '#FFFFFF',
   },
   tideInfoBox: {
-    backgroundColor: '#0A0F16',
+    backgroundColor: '#F8FAFC',
     borderRadius: 8,
     padding: 12,
     alignItems: 'center',
