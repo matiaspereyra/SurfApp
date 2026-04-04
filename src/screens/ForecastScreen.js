@@ -4,7 +4,7 @@ import {
   Animated, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Wind, Waves, Thermometer, Clock, ArrowUp, Heart, Bell } from 'lucide-react-native';
+import { Wind, Waves, Thermometer, Clock, Heart, Bell, ChevronDown, ChevronUp } from 'lucide-react-native';
 import AppHeader from '../components/AppHeader';
 import { SURFLINE_COLORS, getSpotShowName } from '../constants/Spots';
 import { fetchSpotForecastByName } from '../services/forecastService';
@@ -208,6 +208,32 @@ const DirectionTriangle = ({ angle = 0, color = '#0F172A', size = 14 }) => (
   </View>
 );
 
+const WindDirectionArrow = ({ angle = 0, color = '#0F172A' }) => (
+  <View style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: `${angle}deg` }] }}>
+    <View
+      style={{
+        width: 0,
+        height: 0,
+        borderLeftWidth: 6,
+        borderRightWidth: 6,
+        borderBottomWidth: 9,
+        borderLeftColor: 'transparent',
+        borderRightColor: 'transparent',
+        borderBottomColor: color,
+        marginBottom: -1,
+      }}
+    />
+    <View
+      style={{
+        width: 3,
+        height: 13,
+        borderRadius: 0,
+        backgroundColor: color,
+      }}
+    />
+  </View>
+);
+
 function SkeletonBlock({ style }) {
   return <View style={[styles.skeletonBlock, style]} />;
 }
@@ -221,6 +247,7 @@ export default function ForecastScreen({
 }) {
   const [liveSpot, setLiveSpot] = useState(null);
   const [loadingLiveForecast, setLoadingLiveForecast] = useState(false);
+  const [expandedDailySections, setExpandedDailySections] = useState({});
   const [isSpotAlertOn, setIsSpotAlertOn] = useState(false);
   const [savingSpotAlert, setSavingSpotAlert] = useState(false);
   const contentOpacity = useRef(new Animated.Value(0)).current;
@@ -229,6 +256,11 @@ export default function ForecastScreen({
   const spotTitle = getSpotShowName(spot);
   const isVeryLongTitle = spotTitle.length > 22;
   const isLongTitle = spotTitle.length > 16;
+  const headerTitleStyle = isVeryLongTitle
+    ? styles.headerTitleVeryLong
+    : isLongTitle
+      ? styles.headerTitleLong
+      : styles.headerTitleDefault;
 
   useEffect(() => {
     Animated.timing(contentOpacity, {
@@ -263,6 +295,10 @@ export default function ForecastScreen({
     return () => {
       mounted = false;
     };
+  }, [spot?.name]);
+
+  useEffect(() => {
+    setExpandedDailySections({});
   }, [spot?.name]);
 
   useEffect(() => {
@@ -366,6 +402,13 @@ export default function ForecastScreen({
     onToggleFavorite?.(spot?.name);
   };
 
+  const toggleDaySection = (dayKey) => {
+    setExpandedDailySections((prev) => ({
+      ...prev,
+      [dayKey]: !prev[dayKey],
+    }));
+  };
+
   const handleToggleSpotAlert = async () => {
     if (!authUser?.id || !spot?.name || savingSpotAlert) return;
 
@@ -403,7 +446,7 @@ export default function ForecastScreen({
         title={spotTitle}
         compact={compact}
         sideSlotWidth={84}
-        titleStyle={isVeryLongTitle ? styles.headerTitleVeryLong : isLongTitle ? styles.headerTitleLong : null}
+        titleStyle={headerTitleStyle}
         onBack={onBack}
         rightElement={(
           <View style={styles.headerActions}>
@@ -520,9 +563,25 @@ export default function ForecastScreen({
         ) : (
           hourlyForecastByDay.map((day, dayIdx) => (
             <View key={`${day.date}-${dayIdx}`} style={styles.dayHourlyCard}>
-              <View style={styles.dayHourlyHeader}>
-                <Text style={styles.dayHourlyTitle}>{formatHourlyHeaderTitle(day.date, day.dayOfWeek || day.dayLabel)}</Text>
-              </View>
+              <TouchableOpacity
+                onPress={() => toggleDaySection(day.date || String(dayIdx))}
+                activeOpacity={0.85}
+                style={styles.dayHourlyHeader}
+              >
+                <View style={styles.dayHeaderTitleRow}>
+                  {expandedDailySections[day.date || String(dayIdx)] ? (
+                    <ChevronUp size={16} color="#64748B" />
+                  ) : (
+                    <ChevronDown size={16} color="#64748B" />
+                  )}
+                  <Text style={styles.dayHourlyTitle}>{formatHourlyHeaderTitle(day.date, day.dayOfWeek || day.dayLabel)}</Text>
+                </View>
+                <View style={styles.dayHeaderActionRow}>
+                  <Text style={styles.dayHeaderActionText}>
+                    {expandedDailySections[day.date || String(dayIdx)] ? 'COLAPSAR' : 'VER TODO'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
                 <View style={styles.tableContainerNoScroll}>
                   <View style={styles.forecastTable}>
                     <View style={styles.tableHeaderRow}>
@@ -538,7 +597,13 @@ export default function ForecastScreen({
                       </View>
                     </View>
 
-                    {day.entries.map((hour, idx) => {
+                    {(expandedDailySections[day.date || String(dayIdx)]
+                      ? day.entries
+                      : day.entries.filter((hour) => {
+                          const hourValue = getHourFromTime(hour?.time);
+                          return hourValue === 6 || hourValue === 12 || hourValue === 18;
+                        })
+                    ).map((hour, idx) => {
                       const kph = toKph(hour.windSpeed);
                       const gustKph = toKph(hour.windGust);
                       const starCount = getRowStars(hour.surfHeight ?? hour.swellHeight, hour.swellPeriod, kph);
@@ -628,9 +693,7 @@ export default function ForecastScreen({
                               </View>
                             </View>
                             <View style={[styles.windArrowPanel, idx % 2 === 0 ? styles.windArrowPanelEven : null]}>
-                              <View style={{ transform: [{ rotate: `${windAngle}deg` }] }}>
-                                <ArrowUp size={24} color="#0F172A" />
-                              </View>
+                              <WindDirectionArrow angle={windAngle} color="#0F172A" />
                               <Text style={styles.windArrowLabel}>{hour.windDirection ?? '--'}</Text>
                             </View>
                           </View>
@@ -793,7 +856,7 @@ const styles = StyleSheet.create({
   // Forecast Table (Horizontal)
   sectionTitle: {
     color: '#334155',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '900',
     paddingHorizontal: 18,
     marginTop: 22,
@@ -804,14 +867,21 @@ const styles = StyleSheet.create({
   sectionTitleCompact: {
     marginTop: 18,
     marginBottom: 10,
-    fontSize: 10,
+    fontSize: 11,
+  },
+  headerTitleDefault: {
+    fontSize: 20,
+    lineHeight: 22,
+    letterSpacing: 0.2,
   },
   headerTitleLong: {
-    fontSize: 14,
+    fontSize: 18,
+    lineHeight: 20,
     letterSpacing: 0.1,
   },
   headerTitleVeryLong: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 18,
     letterSpacing: 0,
   },
   tableContainer: {
@@ -919,9 +989,25 @@ const styles = StyleSheet.create({
     paddingTop: 7,
     paddingBottom: 14,
   },
+  dayHeaderTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dayHeaderActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  dayHeaderActionText: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
   dayHourlyTitle: {
     color: '#0F172A',
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
     textTransform: 'capitalize',
   },
@@ -1099,7 +1185,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#E2E8F0',
-    borderRadius: 8,
+    borderRadius: 4,
     paddingHorizontal: 10,
     paddingVertical: 4,
     marginRight: 6,
@@ -1214,7 +1300,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
     backgroundColor: '#E2E8F0',
-    borderRadius: 8,
+    borderRadius: 4,
     paddingVertical: 4,
     marginRight: 6,
   },

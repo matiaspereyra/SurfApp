@@ -142,4 +142,7 @@ export const NZ_SPOTS = SPOTS_BASE.map(spot => ({
   forecast: generateForecast(spot.rating)
 })).map(applyMarkerOffsets);
 
-export const getSpotShowName = (spot) => spot?.showName || spot?.name || '';
+export const getSpotShowName = (spot) => {
+  const baseName = spot?.showName || spot?.name || '';
+  return baseName.replace(/Mount\s+Maunganui/gi, 'Mt Maunganui');
+};
