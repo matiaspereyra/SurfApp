@@ -1,22 +1,42 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Mail, ShieldCheck } from 'lucide-react-native';
 import { isAuthAvailable, sendOtpCode, verifyOtpCode } from '../services/authService';
 import { UI_COLORS, UI_RADIUS, UI_SPACE, UI_TYPE } from '../theme/ui';
 
 export default function AuthScreen() {
   const RESEND_COOLDOWN_SECONDS = 90;
+  const MIN_TOKEN_LENGTH = 6;
 
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
+  const [otpEmail, setOtpEmail] = useState('');
+  const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const otpInputRef = useRef(null);
 
+  const normalizedEmail = email.trim().toLowerCase();
   const isEmailValid = useMemo(() => /.+@.+\..+/.test(email.trim()), [email]);
+  const normalizedToken = useMemo(() => otp.replace(/\s+/g, '').trim(), [otp]);
+  const isOnOtpStep = otpSent && !isEditingEmail;
+  const canReturnToActiveCode = isEditingEmail && otpSent && normalizedEmail === otpEmail && resendCooldown > 0;
+  const canSendOtp = isAuthAvailable && isEmailValid && !loading;
+  const canVerifyOtp = isAuthAvailable && normalizedToken.length >= MIN_TOKEN_LENGTH && !loading;
 
   useEffect(() => {
     if (!otpSent || resendCooldown <= 0) {
@@ -30,6 +50,16 @@ export default function AuthScreen() {
     return () => clearInterval(timer);
   }, [otpSent, resendCooldown]);
 
+  useEffect(() => {
+    if (!otpSent) return;
+
+    const timerId = setTimeout(() => {
+      otpInputRef.current?.focus();
+    }, 120);
+
+    return () => clearTimeout(timerId);
+  }, [otpSent]);
+
   const handleSendOtp = async () => {
     setError('');
     setInfo('');
@@ -40,7 +70,7 @@ export default function AuthScreen() {
     }
 
     setLoading(true);
-    const result = await sendOtpCode(email.trim().toLowerCase());
+    const result = await sendOtpCode(normalizedEmail);
     setLoading(false);
 
     if (!result.ok) {
@@ -49,33 +79,38 @@ export default function AuthScreen() {
     }
 
     setOtpSent(true);
+    setOtpEmail(normalizedEmail);
+    setIsEditingEmail(false);
     setOtp('');
     setResendCooldown(RESEND_COOLDOWN_SECONDS);
     setInfo('Revisa tu email y pega el codigo o token de acceso.');
   };
 
-  const handleResetToSendStep = () => {
-    setOtpSent(false);
-    setOtp('');
-    setResendCooldown(0);
+  const handleChangeEmail = () => {
+    setIsEditingEmail(true);
+    Keyboard.dismiss();
     setError('');
     setInfo('');
+  };
+
+  const handleReturnToCode = () => {
+    setIsEditingEmail(false);
+    setError('');
+    setInfo('Puedes seguir usando el codigo activo.');
   };
 
   const handleVerifyOtp = async () => {
     setError('');
     setInfo('');
 
-    if (!otp || otp.trim().length < 6) {
+    if (!normalizedToken || normalizedToken.length < MIN_TOKEN_LENGTH) {
       setError('Ingresa el codigo o token recibido por email');
       return;
     }
 
-    const normalizedToken = otp.replace(/\s+/g, '').trim();
-
     setLoading(true);
     const result = await verifyOtpCode({
-      email: email.trim().toLowerCase(),
+      email: normalizedEmail,
       token: normalizedToken,
     });
     setLoading(false);
@@ -104,9 +139,28 @@ export default function AuthScreen() {
       <View style={styles.atmosphereOne} pointerEvents="none" />
       <View style={styles.atmosphereTwo} pointerEvents="none" />
 
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={12}
+      >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
       <View style={styles.card}>
-        <Text style={styles.title}>Surf ID</Text>
+        <Text style={styles.title}>Surf Waze</Text>
         <Text style={styles.subtitle}>Accede con email para activar alertas y reputacion real.</Text>
+
+        <View style={styles.stepRow}>
+          <View style={[styles.stepPill, styles.stepPillActive]}>
+            <Text style={[styles.stepPillText, styles.stepPillTextActive]}>1. Email</Text>
+          </View>
+          <View style={[styles.stepPill, isOnOtpStep ? styles.stepPillActive : null]}>
+            <Text style={[styles.stepPillText, isOnOtpStep ? styles.stepPillTextActive : null]}>2. Codigo</Text>
+          </View>
+        </View>
 
         {!isAuthAvailable ? (
           <View style={styles.warnBox}>
@@ -114,7 +168,7 @@ export default function AuthScreen() {
           </View>
         ) : null}
 
-        <View style={styles.inputWrap}>
+        <View style={[styles.inputWrap, error && !isEmailValid ? styles.inputWrapError : null]}>
           <Mail size={16} color="#8EA2B8" />
           <TextInput
             value={email}
@@ -126,13 +180,18 @@ export default function AuthScreen() {
             cursorColor="#0C4A6E"
             selectionColor="#0C4A6E"
             style={styles.input}
+            returnKeyType={isOnOtpStep ? 'next' : 'send'}
+            onSubmitEditing={() => {
+              if (!isOnOtpStep && canSendOtp) handleSendOtp();
+            }}
           />
         </View>
 
-        {otpSent ? (
-          <View style={styles.inputWrap}>
+        {isOnOtpStep ? (
+          <View style={[styles.inputWrap, error ? styles.inputWrapError : null]}>
             <ShieldCheck size={16} color="#8EA2B8" />
             <TextInput
+              ref={otpInputRef}
               value={otp}
               onChangeText={setOtp}
               placeholder="Codigo o token de email"
@@ -144,31 +203,33 @@ export default function AuthScreen() {
               selectionColor="#0C4A6E"
               style={styles.input}
               maxLength={128}
+              returnKeyType="go"
+              onSubmitEditing={() => {
+                if (canVerifyOtp) handleVerifyOtp();
+              }}
             />
           </View>
         ) : null}
 
-        {otpSent ? (
+        {isOnOtpStep ? (
           <Text style={styles.hintText}>
-            Reenvio en {RESEND_COOLDOWN_SECONDS}s. La expiracion del codigo depende de tu configuracion en Supabase.
+            {resendCooldown > 0
+              ? `Puedes reenviar en ${resendCooldown}s.`
+              : 'Si no recibiste el codigo, puedes reenviarlo ahora.'}
           </Text>
         ) : null}
 
         <TouchableOpacity
-          style={[styles.primaryBtn, loading ? styles.primaryBtnDisabled : null]}
-          onPress={otpSent ? handleVerifyOtp : handleSendOtp}
-          disabled={loading || !isAuthAvailable}
+          style={[styles.primaryBtn, (isOnOtpStep ? !canVerifyOtp : !canSendOtp) ? styles.primaryBtnDisabled : null]}
+          onPress={isOnOtpStep ? handleVerifyOtp : handleSendOtp}
+          disabled={isOnOtpStep ? !canVerifyOtp : !canSendOtp}
         >
           <Text style={styles.primaryBtnText}>
-            {loading ? 'Cargando...' : otpSent ? 'Verificar codigo' : 'Enviar codigo'}
+            {loading ? 'Cargando...' : isOnOtpStep ? 'Verificar codigo' : otpSent ? 'Enviar codigo nuevo' : 'Enviar codigo'}
           </Text>
         </TouchableOpacity>
 
-        {otpSent && resendCooldown > 0 ? (
-          <Text style={styles.infoText}>Podras reenviar codigo en {resendCooldown}s</Text>
-        ) : null}
-
-        {otpSent && resendCooldown === 0 ? (
+        {isOnOtpStep && resendCooldown === 0 ? (
           <TouchableOpacity
             style={styles.linkBtn}
             onPress={handleSendOtp}
@@ -178,24 +239,44 @@ export default function AuthScreen() {
           </TouchableOpacity>
         ) : null}
 
-        {otpSent && resendCooldown === 0 ? (
+        {isOnOtpStep ? (
           <TouchableOpacity
             style={styles.linkBtn}
-            onPress={handleResetToSendStep}
+            onPress={handleChangeEmail}
             disabled={loading}
           >
-            <Text style={styles.linkText}>Volver a enviar codigo</Text>
+            <Text style={styles.linkText}>Cambiar email</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {canReturnToActiveCode ? (
+          <TouchableOpacity
+            style={styles.linkBtn}
+            onPress={handleReturnToCode}
+            disabled={loading}
+          >
+            <Text style={styles.linkText}>Volver al codigo activo</Text>
           </TouchableOpacity>
         ) : null}
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
         {info ? <Text style={styles.infoText}>{info}</Text> : null}
       </View>
+      </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingBottom: 20,
+  },
   container: {
     flex: 1,
     backgroundColor: UI_COLORS.appBg,
@@ -268,6 +349,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     height: 44,
   },
+  inputWrapError: {
+    borderColor: '#EF4444',
+  },
   input: {
     flex: 1,
     color: '#0F172A',
@@ -290,10 +374,15 @@ const styles = StyleSheet.create({
   },
   linkBtn: {
     alignSelf: 'flex-start',
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: UI_RADIUS.pill,
+    backgroundColor: '#E6EEF6',
+    borderWidth: 1,
+    borderColor: '#CBD8E6',
   },
   linkText: {
-    color: '#9FD8B4',
+    color: '#0F3D63',
     fontSize: UI_TYPE.bodySm,
     fontWeight: '700',
   },
@@ -303,7 +392,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   infoText: {
-    color: '#9FD8B4',
+    color: '#0F3D63',
     fontSize: UI_TYPE.bodySm,
     fontWeight: '700',
   },
@@ -311,5 +400,29 @@ const styles = StyleSheet.create({
     color: UI_COLORS.textMuted,
     fontSize: UI_TYPE.caption,
     fontWeight: '600',
+  },
+  stepRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  stepPill: {
+    borderWidth: 1,
+    borderColor: UI_COLORS.panelBorder,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  stepPillActive: {
+    borderColor: '#0EA5E9',
+    backgroundColor: '#E0F2FE',
+  },
+  stepPillText: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  stepPillTextActive: {
+    color: '#0C4A6E',
   },
 });

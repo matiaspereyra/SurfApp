@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Animated, Easing, PanResponder, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Plus, ThumbsUp } from 'lucide-react-native';
 import { Modal } from 'react-native';
 import * as Location from 'expo-location';
@@ -20,6 +20,7 @@ import {
 import { requestPushPermission } from '../services/notificationService';
 
 const NEARBY_RADIUS_METERS = 30000;
+const MODAL_TOP_EPSILON = 40;
 const USER_RATING_OPTIONS = ['POOR', 'FAIR', 'GOOD', 'EPIC'];
 const RATING_TONE_MAP = {
   EPIC: '#0F766E',
@@ -152,6 +153,11 @@ export default function CommunityScreen({
   const [selectedUserRating, setSelectedUserRating] = useState('FAIR');
   const [newReportText, setNewReportText] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [publishErrors, setPublishErrors] = useState({
+    spot: '',
+    comment: '',
+    general: '',
+  });
   const [publishing, setPublishing] = useState(false);
   const [userCoords, setUserCoords] = useState(null);
   const [locationStatus, setLocationStatus] = useState('loading');
@@ -170,8 +176,14 @@ export default function CommunityScreen({
   const highlightProgress = useRef(new Animated.Value(0)).current;
   const focusedSkeletonPulse = useRef(new Animated.Value(0.78)).current;
   const modalDragOffset = useRef(new Animated.Value(0)).current;
-  const panResponderRef = useRef(null);
   const modalScrollOffsetRef = useRef(0);
+  const publishModalScrollRef = useRef(null);
+  const publishSectionOffsetsRef = useRef({
+    intro: 0,
+    spot: 0,
+    comment: 0,
+    general: 0,
+  });
   const isHandleDraggingRef = useRef(false);
   const modalClosingRef = useRef(false);
   const modalDragValueRef = useRef(0);
@@ -241,18 +253,13 @@ export default function CommunityScreen({
   );
 
   const selectedForecast = selectedSpot?.forecast?.[0] || null;
-  const modalHalfCloseThreshold = screenHeight * 0.5;
-  const modalOverlayOpacity = modalDragOffset.interpolate({
-    inputRange: [0, screenHeight * 0.65],
-    outputRange: [1, 0.72],
-    extrapolate: 'clamp',
-  });
+  const modalTopGap = insets.top + 28;
+  const modalHalfCloseThreshold = (screenHeight - modalTopGap) * 0.5;
 
   const applyModalDragOffset = useCallback(
     (rawDy) => {
       const dy = Math.max(0, rawDy);
-      const resistedDy = dy <= 120 ? dy * 0.95 : 114 + (dy - 120) * 0.42;
-      modalDragOffset.setValue(resistedDy);
+      modalDragOffset.setValue(dy);
     },
     [modalDragOffset]
   );
@@ -260,9 +267,9 @@ export default function CommunityScreen({
   const resetPublishModalPosition = useCallback(() => {
     Animated.spring(modalDragOffset, {
       toValue: 0,
-      damping: 22,
-      mass: 0.9,
-      stiffness: 240,
+      damping: 18,
+      mass: 0.8,
+      stiffness: 320,
       overshootClamping: true,
       useNativeDriver: true,
     }).start();
@@ -272,7 +279,7 @@ export default function CommunityScreen({
     if (modalClosingRef.current) return;
 
     modalClosingRef.current = true;
-    const duration = Math.max(170, Math.min(300, 280 - Math.abs(velocity) * 70));
+    const duration = Math.max(150, Math.min(220, 200 - Math.abs(velocity) * 30));
     Animated.timing(modalDragOffset, {
       toValue: screenHeight,
       duration,
@@ -285,6 +292,100 @@ export default function CommunityScreen({
       modalClosingRef.current = false;
     });
   }, [modalDragOffset, screenHeight]);
+
+  const settleModalFromGesture = useCallback(
+    (gestureState) => {
+      if (modalClosingRef.current) return;
+
+      const draggedDistance = Math.max(gestureState.dy || 0, modalDragValueRef.current);
+
+      if (draggedDistance > modalHalfCloseThreshold) {
+        closePublishModalWithSlide(gestureState.vy || 0);
+      } else {
+        resetPublishModalPosition();
+      }
+    },
+    [closePublishModalWithSlide, modalHalfCloseThreshold, resetPublishModalPosition]
+  );
+
+  const modalPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => showPublishModal,
+        onStartShouldSetPanResponderCapture: () => showPublishModal,
+        onMoveShouldSetPanResponder: (_evt, gestureState) => {
+          return (
+            showPublishModal &&
+            gestureState.dy > 1 &&
+            Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
+          );
+        },
+        onMoveShouldSetPanResponderCapture: (_evt, gestureState) => {
+          return (
+            showPublishModal &&
+            gestureState.dy > 1 &&
+            Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
+          );
+        },
+        onPanResponderGrant: () => {
+          isHandleDraggingRef.current = true;
+        },
+        onPanResponderMove: (_evt, gestureState) => {
+          if (gestureState.dy <= 0) return;
+          applyModalDragOffset(gestureState.dy);
+        },
+        onPanResponderRelease: (_evt, gestureState) => {
+          settleModalFromGesture(gestureState);
+
+          isHandleDraggingRef.current = false;
+        },
+        onPanResponderTerminate: () => {
+          isHandleDraggingRef.current = false;
+          resetPublishModalPosition();
+        },
+      }),
+    [applyModalDragOffset, resetPublishModalPosition, settleModalFromGesture, showPublishModal]
+  );
+
+  const modalContentPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+        onPanResponderTerminationRequest: () => false,
+        onMoveShouldSetPanResponder: (_evt, gestureState) => {
+          return (
+            showPublishModal &&
+            !modalClosingRef.current &&
+            !isHandleDraggingRef.current &&
+            modalScrollOffsetRef.current <= MODAL_TOP_EPSILON &&
+            gestureState.dy > 0.1 &&
+            Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
+          );
+        },
+        onMoveShouldSetPanResponderCapture: (_evt, gestureState) => {
+          return (
+            showPublishModal &&
+            !modalClosingRef.current &&
+            !isHandleDraggingRef.current &&
+            modalScrollOffsetRef.current <= MODAL_TOP_EPSILON &&
+            gestureState.dy > 0.1 &&
+            Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
+          );
+        },
+        onPanResponderMove: (_evt, gestureState) => {
+          if (gestureState.dy <= 0) return;
+          applyModalDragOffset(gestureState.dy);
+        },
+        onPanResponderRelease: (_evt, gestureState) => {
+          settleModalFromGesture(gestureState);
+        },
+        onPanResponderTerminate: () => {
+          resetPublishModalPosition();
+        },
+      }),
+    [applyModalDragOffset, resetPublishModalPosition, settleModalFromGesture, showPublishModal]
+  );
 
   const loadCommunityData = useCallback(async () => {
     const [nextReports, nextRep] = await Promise.all([
@@ -353,6 +454,7 @@ export default function CommunityScreen({
     if (!showPublishModal) return;
 
     modalDragOffset.setValue(0);
+    modalDragValueRef.current = 0;
     modalScrollOffsetRef.current = 0;
     isHandleDraggingRef.current = false;
     modalClosingRef.current = false;
@@ -367,49 +469,6 @@ export default function CommunityScreen({
       modalDragOffset.removeListener(listenerId);
     };
   }, [modalDragOffset]);
-
-  useEffect(() => {
-    const panResponder = PanResponder.create({
-      onStartShouldSetPanResponder: () => showPublishModal,
-      onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponder: (evt, gestureState) => {
-        return (
-          showPublishModal &&
-          gestureState.dy > 2 &&
-          Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
-        );
-      },
-      onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
-        return (
-          showPublishModal &&
-          gestureState.dy > 2 &&
-          Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
-        );
-      },
-      onPanResponderGrant: () => {
-        isHandleDraggingRef.current = true;
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        if (gestureState.dy < 0) return;
-        applyModalDragOffset(gestureState.dy);
-      },
-      onPanResponderRelease: (evt, gestureState) => {
-        if (modalDragValueRef.current > modalHalfCloseThreshold) {
-          closePublishModalWithSlide(gestureState.vy);
-        } else {
-          resetPublishModalPosition();
-        }
-
-        isHandleDraggingRef.current = false;
-      },
-      onPanResponderTerminate: () => {
-        isHandleDraggingRef.current = false;
-        resetPublishModalPosition();
-      },
-    });
-
-    panResponderRef.current = panResponder;
-  }, [applyModalDragOffset, closePublishModalWithSlide, modalHalfCloseThreshold, resetPublishModalPosition, showPublishModal]);
 
   useEffect(() => {
     let mounted = true;
@@ -554,26 +613,41 @@ export default function CommunityScreen({
   }, [incomingReportId, reportsWithInitial, reportLayoutTick]);
 
   const handlePublish = async () => {
+    const scrollToPublishSection = (sectionKey) => {
+      requestAnimationFrame(() => {
+        const targetY = publishSectionOffsetsRef.current[sectionKey] ?? 0;
+        publishModalScrollRef.current?.scrollTo({
+          y: Math.max(0, targetY - 12),
+          animated: true,
+        });
+      });
+    };
+
     setFeedback('');
+    setPublishErrors({ spot: '', comment: '', general: '' });
 
     if (!authUser?.id) {
-      setFeedback('Debes iniciar sesion para publicar un reporte.');
+      setPublishErrors((prev) => ({ ...prev, general: 'Debes iniciar sesion para publicar un reporte.' }));
+      scrollToPublishSection('intro');
       return;
     }
 
     if (!canReportFromHere) {
-      setFeedback('Solo puedes reportar si estas cerca del spot seleccionado.');
+      setPublishErrors((prev) => ({ ...prev, spot: 'Estas fuera de rango para publicar en esta zona.' }));
+      scrollToPublishSection('spot');
       return;
     }
 
     if (!selectedSpot?.name) {
-      setFeedback('No hay playa cercana seleccionada para publicar.');
+      setPublishErrors((prev) => ({ ...prev, spot: 'Selecciona una playa para publicar.' }));
+      scrollToPublishSection('spot');
       return;
     }
 
     const comment = newReportText.trim();
     if (comment.length < 8) {
-      setFeedback('Escribe al menos 8 caracteres.');
+      setPublishErrors((prev) => ({ ...prev, comment: 'Escribe al menos 8 caracteres en el comentario.' }));
+      scrollToPublishSection('comment');
       return;
     }
 
@@ -600,7 +674,8 @@ export default function CommunityScreen({
     setPublishing(false);
 
     if (!result.ok) {
-      setFeedback(result.error || 'No se pudo publicar el reporte.');
+      setPublishErrors((prev) => ({ ...prev, general: result.error || 'No se pudo publicar el reporte.' }));
+      scrollToPublishSection('general');
       return;
     }
 
@@ -783,27 +858,70 @@ export default function CommunityScreen({
 
       <Modal
         visible={showPublishModal}
-        transparent={false}
-        animationType="slide"
-        presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'fullScreen'}
+        transparent={true}
+        animationType="none"
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowPublishModal(false)}
       >
-        <View style={styles.publishModalContainer}>
-            <View style={styles.publishModalDragZone}>
+        <Animated.View style={styles.publishModalOverlay}>
+          <Animated.View
+            style={[
+              styles.publishModalContainer,
+              {
+                marginTop: insets.top + 28,
+                transform: [{ translateY: modalDragOffset }],
+              },
+            ]}
+          >
+            <View style={styles.publishModalDragZone} {...modalPanResponder.panHandlers}>
               <View style={styles.publishModalDragHandleWrap}>
                 <View style={styles.publishModalDragHandle} />
               </View>
             </View>
 
+          <View style={styles.publishModalContentWrap} {...modalContentPanResponder.panHandlers}>
           <ScrollView
+            ref={publishModalScrollRef}
             style={styles.publishModalScroll}
             contentContainerStyle={[styles.publishModalContent, { paddingBottom: 120 + insets.bottom }]}
             showsVerticalScrollIndicator={false}
-            bounces={true}
-            alwaysBounceVertical={true}
+            bounces={false}
+            alwaysBounceVertical={false}
             scrollEventThrottle={16}
+            keyboardShouldPersistTaps="handled"
+            {...modalContentPanResponder.panHandlers}
+            onScroll={(event) => {
+              const y = event.nativeEvent.contentOffset.y;
+              modalScrollOffsetRef.current = y <= MODAL_TOP_EPSILON ? 0 : y;
+            }}
+            onScrollBeginDrag={(event) => {
+              const y = event.nativeEvent.contentOffset.y;
+              modalScrollOffsetRef.current = y <= MODAL_TOP_EPSILON ? 0 : y;
+            }}
+            onScrollEndDrag={(event) => {
+              if (modalClosingRef.current || isHandleDraggingRef.current) return;
+
+              const y = event.nativeEvent.contentOffset.y;
+              const distance = Math.max(y < 0 ? -y : 0, modalDragValueRef.current);
+
+              if (distance > modalHalfCloseThreshold) {
+                closePublishModalWithSlide(event.nativeEvent.velocity?.y || 0);
+              } else if (modalDragValueRef.current > 0) {
+                resetPublishModalPosition();
+              }
+            }}
+            onMomentumScrollEnd={() => {
+              if (!modalClosingRef.current && modalDragValueRef.current > 0) {
+                resetPublishModalPosition();
+              }
+            }}
           >
-            <View style={styles.publishIntroCard}>
+            <View
+              style={styles.publishIntroCard}
+              onLayout={(event) => {
+                publishSectionOffsetsRef.current.intro = event.nativeEvent.layout.y;
+              }}
+            >
               <Text style={styles.publishIntroTitle}>Reporte en vivo</Text>
               <Text style={styles.cardHint}>Lista automatica de playas cercanas segun tu ubicacion actual.</Text>
               <View style={styles.publishStatusRow}>
@@ -812,7 +930,7 @@ export default function CommunityScreen({
                     {locationStatus !== 'ready'
                       ? 'Ubicacion pendiente'
                       : canReportFromHere
-                        ? `Puedes reportar en ${selectedSpotName} (${(selectedSpotDistance / 1000).toFixed(1)} km)`
+                        ? 'Puedes reportar desde tu zona actual.'
                         : nearbySpots.length
                           ? `Muy lejos para reportar (${selectedSpotDistance ? (selectedSpotDistance / 1000).toFixed(1) : '--'} km)`
                           : 'No hay playas cercanas dentro del radio permitido'}
@@ -821,23 +939,37 @@ export default function CommunityScreen({
               </View>
             </View>
 
-            <View style={styles.publishSection}>
+            <View
+              style={styles.publishSection}
+              onLayout={(event) => {
+                publishSectionOffsetsRef.current.spot = event.nativeEvent.layout.y;
+              }}
+            >
               <View style={styles.sectionHeaderRow}>
                 <Text style={styles.sectionLabel}>Playa</Text>
                 <Text style={styles.sectionHelper}>elige el spot más cercano</Text>
               </View>
-              <View style={styles.spotPickerWrap}>
+              <View style={styles.spotListWrap}>
                 {nearbySpots.map((item) => {
                   const selected = item.spot.name === selectedSpotName;
                   return (
                     <TouchableOpacity
                       key={item.spot.id}
-                      style={[styles.spotPill, selected ? styles.spotPillActive : null]}
+                      style={[styles.spotListRow, selected ? styles.spotListRowActive : null]}
                       onPress={() => setSelectedSpotName(item.spot.name)}
+                      activeOpacity={0.8}
                     >
-                      <Text style={[styles.spotPillText, selected ? styles.spotPillTextActive : null]}>
-                        {item.spot.name} ({(item.distance / 1000).toFixed(1)} km)
-                      </Text>
+                      <View style={styles.spotListLeft}>
+                        <View style={[styles.spotRadioOuter, selected ? styles.spotRadioOuterActive : null]}>
+                          {selected ? <View style={styles.spotRadioInner} /> : null}
+                        </View>
+                        <View>
+                          <Text style={[styles.spotListPrimary, selected ? styles.spotListPrimaryActive : null]}>
+                            {item.spot.name}
+                          </Text>
+                          <Text style={styles.spotListMeta}>Distancia aprox. {(item.distance / 1000).toFixed(1)} km</Text>
+                        </View>
+                      </View>
                     </TouchableOpacity>
                   );
                 })}
@@ -846,9 +978,19 @@ export default function CommunityScreen({
               {!nearbySpots.length ? (
                 <Text style={styles.feedbackText}>No hay spots cercanos disponibles para tu ubicacion.</Text>
               ) : null}
+              {publishErrors.spot ? (
+                <View style={styles.fieldErrorBox}>
+                  <Text style={styles.fieldErrorText}>{publishErrors.spot}</Text>
+                </View>
+              ) : null}
             </View>
 
-            <View style={styles.publishSection}>
+            <View
+              style={styles.publishSection}
+              onLayout={(event) => {
+                publishSectionOffsetsRef.current.comment = event.nativeEvent.layout.y;
+              }}
+            >
               <View style={styles.sectionHeaderRow}>
                 <Text style={styles.sectionLabel}>Comentario</Text>
                 <Text style={styles.sectionHelper}>cuenta cómo está realmente</Text>
@@ -856,11 +998,21 @@ export default function CommunityScreen({
               <TextInput
                 value={newReportText}
                 onChangeText={setNewReportText}
-                style={styles.reportInput}
+                style={[styles.reportInput, publishErrors.comment ? styles.reportInputError : null]}
                 placeholder="Describe condiciones reales del mar..."
                 placeholderTextColor="#5E6C7A"
                 multiline
+                maxLength={220}
               />
+              <View style={styles.inputMetaRow}>
+                <Text style={styles.inputMetaHint}>Minimo 8 caracteres</Text>
+                <Text style={styles.inputMetaCount}>{newReportText.trim().length}/220</Text>
+              </View>
+              {publishErrors.comment ? (
+                <View style={styles.fieldErrorBox}>
+                  <Text style={styles.fieldErrorText}>{publishErrors.comment}</Text>
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.publishSection}>
@@ -884,8 +1036,20 @@ export default function CommunityScreen({
               </View>
             </View>
 
-            {feedback ? <Text style={styles.feedbackText}>{feedback}</Text> : null}
+            <View
+              onLayout={(event) => {
+                publishSectionOffsetsRef.current.general = event.nativeEvent.layout.y;
+              }}
+            >
+              {publishErrors.general ? (
+                <View style={styles.fieldErrorBox}>
+                  <Text style={styles.fieldErrorText}>{publishErrors.general}</Text>
+                </View>
+              ) : null}
+              {feedback ? <Text style={styles.feedbackText}>{feedback}</Text> : null}
+            </View>
           </ScrollView>
+          </View>
 
           <View style={[styles.publishModalFooter, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
             <TouchableOpacity
@@ -896,7 +1060,8 @@ export default function CommunityScreen({
               <Text style={styles.publishBtnText}>{publishing ? 'Publicando...' : 'Publicar reporte'}</Text>
             </TouchableOpacity>
           </View>
-        </View>
+          </Animated.View>
+        </Animated.View>
       </Modal>
     </SafeAreaView>
   );
@@ -1063,30 +1228,66 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     textTransform: 'uppercase',
   },
-  spotPickerWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 7,
+  spotListWrap: {
+    gap: 8,
   },
-  spotPill: {
-    borderRadius: 3,
+  spotListRow: {
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: UI_COLORS.panelBorder,
-    backgroundColor: UI_COLORS.panelStrong,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    borderLeftWidth: 3,
+    borderLeftColor: UI_COLORS.panelBorder,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  spotPillActive: {
-    borderColor: UI_COLORS.accent,
-    backgroundColor: '#E5E7EB',
+  spotListRowActive: {
+    borderColor: '#0284C7',
+    borderLeftWidth: 7,
+    borderLeftColor: '#38BDF8',
+    backgroundColor: '#EAF6FF',
   },
-  spotPillText: {
-    color: UI_COLORS.textSecondary,
-    fontSize: 11,
+  spotListLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  spotRadioOuter: {
+    width: 16,
+    height: 16,
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: '#94A3B8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  spotRadioOuterActive: {
+    borderColor: '#0284C7',
+  },
+  spotRadioInner: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#0284C7',
+  },
+  spotListPrimary: {
+    color: '#0F172A',
+    fontSize: 13,
     fontWeight: '700',
   },
-  spotPillTextActive: {
-    color: UI_COLORS.textPrimary,
+  spotListPrimaryActive: {
+    color: '#0C4A6E',
+  },
+  spotListMeta: {
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 2,
+    fontWeight: '600',
   },
   gpsStatus: {
     borderRadius: 3,
@@ -1112,16 +1313,53 @@ const styles = StyleSheet.create({
     color: UI_COLORS.accentText,
   },
   reportInput: {
-    minHeight: 90,
-    backgroundColor: UI_COLORS.panelStrong,
+    minHeight: 110,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: UI_COLORS.panelBorder,
-    borderRadius: 4,
-    paddingHorizontal: 10,
-    paddingTop: 10,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
     color: UI_COLORS.textPrimary,
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 19,
     textAlignVertical: 'top',
+  },
+  reportInputError: {
+    borderColor: '#DC2626',
+    backgroundColor: '#FEF2F2',
+  },
+  inputMetaRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  inputMetaHint: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  inputMetaCount: {
+    color: '#475569',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  fieldErrorBox: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  fieldErrorText: {
+    color: '#B91C1C',
+    fontSize: 11,
+    fontWeight: '800',
+    lineHeight: 16,
   },
   ratingPickerWrap: {
     flexDirection: 'row',
@@ -1379,6 +1617,9 @@ const styles = StyleSheet.create({
   publishModalScroll: {
     flex: 1,
   },
+  publishModalContentWrap: {
+    flex: 1,
+  },
   publishModalContent: {
     paddingHorizontal: 16,
     paddingTop: 14,
@@ -1409,8 +1650,8 @@ const styles = StyleSheet.create({
     backgroundColor: UI_COLORS.panel,
     borderWidth: 1,
     borderColor: UI_COLORS.panelBorder,
-    borderRadius: 6,
-    padding: 12,
+    borderRadius: 8,
+    padding: 14,
     gap: 10,
   },
   sectionHeaderRow: {
@@ -1420,15 +1661,15 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sectionLabel: {
-    color: UI_COLORS.textMuted,
-    fontSize: 10,
+    color: '#334155',
+    fontSize: 11,
     fontWeight: '900',
-    letterSpacing: 0.8,
+    letterSpacing: 0.7,
     textTransform: 'uppercase',
   },
   sectionHelper: {
-    color: UI_COLORS.textSecondary,
-    fontSize: 9,
+    color: '#64748B',
+    fontSize: 10,
     fontWeight: '700',
   },
   publishModalFooter: {

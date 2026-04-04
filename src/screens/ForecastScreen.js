@@ -1,27 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet, Text, View, ScrollView, TouchableOpacity, Dimensions,
-  Animated, Modal, PanResponder, useWindowDimensions
+  StyleSheet, Text, View, ScrollView, TouchableOpacity,
+  Animated, useWindowDimensions
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Wind, Waves, Thermometer, Clock, X, ArrowUp, Heart, Bell } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Wind, Waves, Thermometer, Clock, ArrowUp, Heart, Bell } from 'lucide-react-native';
 import AppHeader from '../components/AppHeader';
 import { SURFLINE_COLORS, getSpotShowName } from '../constants/Spots';
 import { fetchSpotForecastByName } from '../services/forecastService';
 import { getAlertRule, upsertAlertRule } from '../services/alertRuleService';
 import { isCompactLayout } from '../theme/ui';
-
-const { width, height } = Dimensions.get('window');
-
-// Color para velocidad de viento
-const getWindColorBg = (windSpeed) => {
-  const speedKts = Number(windSpeed);
-  if (isNaN(speedKts) || windSpeed === null || windSpeed === undefined) return '#1f2937';
-  const speedKph = speedKts * 1.852;
-  if (speedKph < 20) return '#16A34A';
-  if (speedKph < 35) return '#EA580C';
-  return '#DC2626';
-};
 
 // Función para convertir dirección a ángulo (invierte para mostrar hacia dónde va, no de dónde viene)
 const getDirectionAngle = (direction) => {
@@ -46,13 +34,64 @@ const getDirectionAngle = (direction) => {
   return directions[direction] || 0;
 };
 
+const getOppositeAngle = (degValue) => {
+  const deg = Number(degValue);
+  if (!Number.isFinite(deg)) return 0;
+  return (deg + 180) % 360;
+};
+
 const toKph = (kts) => {
   const speed = Number(kts);
   if (!Number.isFinite(speed)) return null;
   return Math.round(speed * 1.852);
 };
 
+const getWindGustColor = (kphValue) => {
+  const speed = Number(kphValue);
+  if (!Number.isFinite(speed)) return '#334155';
+  return speed > 11 ? '#DC2626' : '#334155';
+};
+
+const getColorByHeight = (heightMeters) => {
+  const height = Number(heightMeters);
+  if (!Number.isFinite(height)) return '#FFB100'; // naranja por defecto
+  if (height <= 1) return '#DC2626'; // rojo
+  if (height <= 3) return '#FFB100'; // naranja
+  if (height <= 4) return '#00D15D'; // verde
+  return '#00A145'; // verde oscuro para 4m+
+};
+
+const getColorByStarCount = (starCount) => {
+  const stars = Number(starCount);
+  if (!Number.isFinite(stars)) return '#FFB100';
+  if (stars <= 1) return '#DC2626';
+  if (stars <= 3) return '#FFB100';
+  if (stars === 4) return '#00D15D';
+  return '#00A145';
+};
+
+const getColorByRating = (swellHeightM, swellPeriodS, windSpeedKts) => {
+  const windKph = toKph(windSpeedKts);
+  const stars = getRowStars(swellHeightM, swellPeriodS, windKph);
+  return getColorByStarCount(stars);
+};
+
 const THREE_HOUR_SLOTS = [0, 3, 6, 9, 12, 15, 18, 21];
+
+const getNzTodayDateKey = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Pacific/Auckland',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+
+  const year = parts.find((p) => p.type === 'year')?.value;
+  const month = parts.find((p) => p.type === 'month')?.value;
+  const day = parts.find((p) => p.type === 'day')?.value;
+  if (!year || !month || !day) return '';
+  return `${year}-${month}-${day}`;
+};
 
 const formatForecastDayLabel = (dateKey, fallbackDayOfWeek = '') => {
   if (!dateKey) return fallbackDayOfWeek || '--';
@@ -63,6 +102,17 @@ const formatForecastDayLabel = (dateKey, fallbackDayOfWeek = '') => {
     day: 'numeric',
     month: 'long',
   });
+};
+
+const formatHourlyHeaderTitle = (dateKey, fallbackDayOfWeek = '') => {
+  if (!dateKey) return fallbackDayOfWeek || '--';
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return fallbackDayOfWeek || dateKey;
+
+  const weekday = parsed.toLocaleDateString('en-GB', { weekday: 'long' });
+  const day = parsed.getDate();
+  const month = parsed.getMonth() + 1;
+  return `${weekday}, ${day}/${month}`;
 };
 
 const getHourFromTime = (time) => {
@@ -80,22 +130,36 @@ const formatHourSlot = (time) => {
   return `${hour - 12}pm`;
 };
 
-const getRowStars = (surfHeight, windKph) => {
+const formatHourSlotVertical = (time) => {
+  const label = String(formatHourSlot(time) || '--');
+  return label;
+};
+
+const getRowStars = (surfHeight, swellPeriodS, windKph) => {
   const surf = Number(surfHeight);
+  const period = Number(swellPeriodS);
   const wind = Number(windKph);
-  if (!Number.isFinite(surf)) return '☆☆☆☆☆';
+  if (!Number.isFinite(surf)) return 1;
 
   let score = 0;
+
+  // Altura útil y consistente para surf
   if (surf >= 0.8) score += 1;
-  if (surf >= 1.2) score += 1;
-  if (surf >= 1.8) score += 1;
-  if (Number.isFinite(wind)) {
-    if (wind <= 20) score += 1;
-    if (wind <= 12) score += 1;
+  if (surf >= 1.4) score += 1;
+
+  // Periodos mayores suelen indicar más energía y mejor forma
+  if (Number.isFinite(period)) {
+    if (period >= 9) score += 1;
+    if (period >= 12) score += 1;
   }
 
-  const clamped = Math.max(1, Math.min(5, score));
-  return `${'★'.repeat(clamped)}${'☆'.repeat(5 - clamped)}`;
+  // Menos viento = mejor calidad de ola
+  if (Number.isFinite(wind)) {
+    if (wind <= 18) score += 1;
+    if (wind <= 10) score += 1;
+  }
+
+  return Math.max(1, Math.min(5, score));
 };
 
 const formatShortDate = (dateKey) => {
@@ -118,193 +182,34 @@ const formatHeightRangeMeters = (heightValue) => {
   return `${raw} m`;
 };
 
-// Pantalla Modal de Detalles del Día
-function DayDetailModal({ visible, day, spot, onClose }) {
-  const [tidePosition, setTidePosition] = useState(0);
-  const panResponderRef = useRef(null);
-  const insets = useSafeAreaInsets();
+const formatSurfRange = (surfHeight) => {
+  const value = Number(surfHeight);
+  if (!Number.isFinite(value)) return '--';
 
-  useEffect(() => {
-    if (visible && day) {
-      panResponderRef.current = PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderMove: (evt, gestureState) => {
-          const graphWidth = width - 60;
-          const touchX = gestureState.moveX;
-          const normalizedPosition = Math.max(0, Math.min(1, (touchX - 30) / graphWidth));
-          setTidePosition(normalizedPosition);
-        },
-      });
-    }
-  }, [visible, day]);
+  const min = Math.max(0, value - 0.2);
+  const max = value + 0.2;
+  return `${min.toFixed(1)}-${max.toFixed(1)}`;
+};
 
-  if (!day) return null;
+const DirectionTriangle = ({ angle = 0, color = '#0F172A', size = 14 }) => (
+  <View style={{ transform: [{ rotate: `${angle}deg` }] }}>
+    <View
+      style={{
+        width: 0,
+        height: 0,
+        borderLeftWidth: size * 0.45,
+        borderRightWidth: size * 0.45,
+        borderBottomWidth: size,
+        borderLeftColor: 'transparent',
+        borderRightColor: 'transparent',
+        borderBottomColor: color,
+      }}
+    />
+  </View>
+);
 
-  const graphHeight = 180;
-  const graphWidth = width - 60;
-  const currentTideIndex = Math.max(0, Math.min(day.tideData.length - 1, Math.floor(tidePosition * (day.tideData.length - 1))));
-  const currentTidePoint = day.tideData[currentTideIndex] || { time: '--:--', height: 1 };
-  const currentHeight = currentTidePoint?.height || 1;
-
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-    >
-      <View style={styles.modalContainer}>
-        <View style={[styles.modalHeader, { paddingTop: insets.top + 10 }]}> 
-          <Text style={styles.modalTitle}>{day.dayOfWeek} - {day.date}</Text>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <X color="white" size={24} />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView contentContainerStyle={styles.modalContent}>
-          {/* Rating y Altura */}
-          <View style={[styles.infoCard, { borderColor: SURFLINE_COLORS[day.rating] }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={[styles.ratingBadgeLarge, { backgroundColor: SURFLINE_COLORS[day.rating] }]}>
-                <Text style={styles.ratingBadgeLargeText}>{day.rating}</Text>
-              </View>
-              <View>
-                <Text style={styles.infoLabel}>ALTURA</Text>
-                <Text style={styles.infoValue}>{day.height.min}-{day.height.max}m</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Swell Primario */}
-          <View style={[styles.infoCard, { borderColor: '#00D15D' }]}>
-            <Text style={styles.infoLabel}>SWELL PRIMARIO</Text>
-            <View style={styles.swellDetails}>
-              <View>
-                <Text style={styles.infoValue}>{day.primarySwell.height}m</Text>
-                <Text style={styles.infoSmall}>Altura</Text>
-              </View>
-              <View>
-                <Text style={styles.infoValue}>{day.primarySwell.period}s</Text>
-                <Text style={styles.infoSmall}>Período</Text>
-              </View>
-              <View style={styles.directionView}>
-                <View style={{ transform: [{ rotate: `${getDirectionAngle(day.primarySwell.direction)}deg` }] }}>
-                  <ArrowUp 
-                    size={20} 
-                    color="#00D15D"
-                  />
-                </View>
-                <Text style={styles.infoValue}>{day.primarySwell.direction}</Text>
-                <Text style={styles.infoSmall}>Dirección</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Swell Secundario */}
-          <View style={[styles.infoCard, { borderColor: '#FFB100' }]}>
-            <Text style={styles.infoLabel}>SWELL SECUNDARIO</Text>
-            <View style={styles.swellDetails}>
-              <View>
-                <Text style={styles.infoValue}>{day.secondarySwell.height}m</Text>
-                <Text style={styles.infoSmall}>Altura</Text>
-              </View>
-              <View>
-                <Text style={styles.infoValue}>{day.secondarySwell.period}s</Text>
-                <Text style={styles.infoSmall}>Período</Text>
-              </View>
-              <View style={styles.directionView}>
-                <View style={{ transform: [{ rotate: `${getDirectionAngle(day.secondarySwell.direction)}deg` }] }}>
-                  <ArrowUp 
-                    size={20} 
-                    color="#FFB100"
-                  />
-                </View>
-                <Text style={styles.infoValue}>{day.secondarySwell.direction}</Text>
-                <Text style={styles.infoSmall}>Dirección</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Condiciones */}
-          <View style={styles.conditionsRow}>
-            <View style={[styles.infoCard, { flex: 1, borderColor: '#FFB100' }]}>
-              <Text style={styles.infoLabel}>VIENTO</Text>
-              <Text style={styles.infoValue}>{day.windSpeed}kts</Text>
-              <View style={styles.windDirectionView}>
-                <View style={{ transform: [{ rotate: `${getDirectionAngle(day.windDirection)}deg` }] }}>
-                  <ArrowUp 
-                    size={16} 
-                    color="#FFB100"
-                  />
-                </View>
-                <Text style={styles.infoSmall}>{day.windDirection}</Text>
-              </View>
-            </View>
-            <View style={[styles.infoCard, { flex: 1, borderColor: '#44ADEE' }]}>
-              <Text style={styles.infoLabel}>AGUA</Text>
-              <Text style={styles.infoValue}>{day.waterTemp}°C</Text>
-              <Text style={styles.infoSmall}>{day.neopreneThickness}</Text>
-            </View>
-          </View>
-
-          {/* Gráfico de Mareas Interactivo */}
-          <View style={[styles.infoCard, { borderColor: '#44ADEE' }]}>
-            <Text style={styles.infoLabel}>MAREA - ARRASTRA PARA VER LA HORA</Text>
-            
-            {/* Gráfico SVG simulado con barras */}
-            <View 
-              style={[styles.tideGraph, { height: graphHeight, width: graphWidth }]}
-              {...(panResponderRef.current?.panHandlers || {})}
-            >
-              {/* Barras de marea */}
-              {day.tideData.map((point, idx) => (
-                <View
-                  key={idx}
-                  style={[
-                    styles.tideBar,
-                    {
-                      height: (point.height / 2) * graphHeight,
-                      backgroundColor:
-                        idx === Math.floor(tidePosition * (day.tideData.length - 1))
-                          ? '#00D15D'
-                          : '#1A3646',
-                    },
-                  ]}
-                />
-              ))}
-              
-              {/* Indicador de posición actual */}
-              <View
-                style={[
-                  styles.tideIndicator,
-                  {
-                    left: tidePosition * graphWidth,
-                  },
-                ]}
-              >
-                <View style={styles.indicatorDot} />
-              </View>
-            </View>
-
-            {/* Información de la hora actual en marea */}
-            <View style={styles.tideInfoBox}>
-              <Text style={styles.infoValue}>{currentTidePoint?.time || '--:--'}</Text>
-              <Text style={styles.infoSmall}>{currentHeight.toFixed(2)}m - {currentHeight > 1.5 ? 'Pleamar' : 'Bajamar'}</Text>
-            </View>
-
-            {/* Escalas de hora */}
-            <View style={styles.tideTimeLabels}>
-              <Text style={styles.timeLabelSmall}>00:00</Text>
-              <Text style={styles.timeLabelSmall}>06:00</Text>
-              <Text style={styles.timeLabelSmall}>12:00</Text>
-              <Text style={styles.timeLabelSmall}>18:00</Text>
-            </View>
-          </View>
-        </ScrollView>
-      </View>
-    </Modal>
-  );
+function SkeletonBlock({ style }) {
+  return <View style={[styles.skeletonBlock, style]} />;
 }
 
 export default function ForecastScreen({
@@ -314,8 +219,6 @@ export default function ForecastScreen({
   isFavorite = false,
   onToggleFavorite = () => {},
 }) {
-  const [selectedDay, setSelectedDay] = useState(null);
-  const [modalVisible, setModalVisible] = useState(false);
   const [liveSpot, setLiveSpot] = useState(null);
   const [loadingLiveForecast, setLoadingLiveForecast] = useState(false);
   const [isSpotAlertOn, setIsSpotAlertOn] = useState(false);
@@ -363,11 +266,6 @@ export default function ForecastScreen({
   }, [spot?.name]);
 
   useEffect(() => {
-    setModalVisible(false);
-    setSelectedDay(null);
-  }, [spot?.name]);
-
-  useEffect(() => {
     let mounted = true;
 
     const loadSpotAlertState = async () => {
@@ -395,25 +293,54 @@ export default function ForecastScreen({
 
   const displaySpot = liveSpot;
   const displayForecast = displaySpot?.forecast || [];
-  const heroColor = SURFLINE_COLORS[displaySpot?.rating] || SURFLINE_COLORS.FAIR;
-  const heroHeightLabel = formatHeightRangeMeters(displaySpot?.height);
-  const hasLiveForecast = Boolean(displaySpot && displayForecast.length);
-  const hourlyForecastByDay = displayForecast
+  const nzTodayDateKey = getNzTodayDateKey();
+  const upcomingForecast = displayForecast.filter((day) => {
+    if (!day?.date || !nzTodayDateKey) return false;
+    return day.date >= nzTodayDateKey;
+  });
+  const currentForecastDay = upcomingForecast[0] || null;
+  const heroHeightLabel = currentForecastDay
+    ? `${currentForecastDay?.height?.min ?? '--'}-${currentForecastDay?.height?.max ?? '--'} m`
+    : formatHeightRangeMeters(displaySpot?.height);
+  const hasLiveForecast = Boolean(displaySpot && upcomingForecast.length);
+  const showForecastSkeleton = loadingLiveForecast && !hasLiveForecast;
+  const hourlyForecastByDay = upcomingForecast
     .slice(0, 16)
     .map((day) => {
       const hourlyBySlot = new Map();
       if (Array.isArray(day?.hourlyData)) {
         day.hourlyData.forEach((hour) => {
-          const parsedHour = getHourFromTime(hour?.time);
-          if (parsedHour !== null && parsedHour % 3 === 0 && !hourlyBySlot.has(parsedHour)) {
-            hourlyBySlot.set(parsedHour, hour);
+          const parsedHourRaw = getHourFromTime(hour?.time);
+          if (parsedHourRaw === null) return;
+
+          // Normalize midnight values like 24:00 to 00:00.
+          const parsedHour = parsedHourRaw % 24;
+          const slot = Math.floor(parsedHour / 3) * 3;
+          const distanceToSlot = Math.abs(parsedHour - slot);
+          const existing = hourlyBySlot.get(slot);
+          const hasWindValue = hour?.windSpeed !== null && hour?.windSpeed !== undefined;
+          const existingHasWindValue = existing?.windSpeed !== null && existing?.windSpeed !== undefined;
+
+          if (
+            !existing ||
+            distanceToSlot < existing.distanceToSlot ||
+            (distanceToSlot === existing.distanceToSlot && hasWindValue && !existingHasWindValue)
+          ) {
+            hourlyBySlot.set(slot, {
+              ...hour,
+              distanceToSlot,
+            });
           }
         });
       }
 
       const entries = THREE_HOUR_SLOTS.map((slot) => {
         const slotHour = hourlyBySlot.get(slot);
-        if (slotHour) return slotHour;
+        if (slotHour) {
+          const { distanceToSlot, ...rest } = slotHour;
+          return rest;
+        }
+
         return {
           time: `${String(slot).padStart(2, '0')}:00`,
           surfHeight: null,
@@ -421,6 +348,7 @@ export default function ForecastScreen({
           swellPeriod: null,
           swellDirection: null,
           windSpeed: null,
+          windGust: null,
           windDirection: null,
           windDirectionDeg: null,
           isPlaceholder: true,
@@ -433,11 +361,6 @@ export default function ForecastScreen({
         entries,
       };
     });
-
-  const openDayDetail = (day) => {
-    setSelectedDay(day);
-    setModalVisible(true);
-  };
 
   const handleToggleFavorite = () => {
     onToggleFavorite?.(spot?.name);
@@ -521,29 +444,45 @@ export default function ForecastScreen({
               <View
                 style={[
                   styles.ratingBadge,
-                  { backgroundColor: heroColor },
+                  { backgroundColor: getColorByRating(currentForecastDay?.primarySwell?.height, currentForecastDay?.primarySwell?.period, currentForecastDay?.windSpeed) },
                 ]}
               >
                 <Text style={styles.ratingText}>{displaySpot?.rating || '--'}</Text>
               </View>
               <Text style={styles.liveTag}>LIVE</Text>
             </View>
-            <Text style={[styles.waveHeightValue, compact ? styles.waveHeightValueCompact : null]}>{heroHeightLabel}</Text>
+            {showForecastSkeleton ? (
+              <SkeletonBlock style={[styles.waveHeightSkeleton, compact ? styles.waveHeightSkeletonCompact : null]} />
+            ) : (
+              <Text style={[styles.waveHeightValue, compact ? styles.waveHeightValueCompact : null]}>{heroHeightLabel}</Text>
+            )}
             <View style={styles.metricsRow}>
               <View style={styles.metricPill}>
                 <Waves size={14} color="#46D7FF" />
                 <Text style={styles.metricPillLabel}>SWELL</Text>
-                <Text style={styles.metricPillValue}>{displayForecast?.[0]?.primarySwell?.height ?? '0.5'}m</Text>
+                {showForecastSkeleton ? (
+                  <SkeletonBlock style={styles.metricValueSkeleton} />
+                ) : (
+                  <Text style={styles.metricPillValue}>{currentForecastDay?.primarySwell?.height ?? '0.5'}m</Text>
+                )}
               </View>
               <View style={styles.metricPill}>
                 <Clock size={14} color="#46D7FF" />
                 <Text style={styles.metricPillLabel}>PERIODO</Text>
-                <Text style={styles.metricPillValue}>{displayForecast?.[0]?.primarySwell?.period ?? '13'}s</Text>
+                {showForecastSkeleton ? (
+                  <SkeletonBlock style={styles.metricValueSkeleton} />
+                ) : (
+                    <Text style={styles.metricPillValue}>{currentForecastDay?.primarySwell?.period ?? '13'}s</Text>
+                )}
               </View>
               <View style={styles.metricPill}>
                 <Wind size={14} color="#46D7FF" />
                 <Text style={styles.metricPillLabel}>VIENTO</Text>
-                <Text style={styles.metricPillValue}>{displayForecast?.[0]?.windSpeed ?? '--'}kts</Text>
+                {showForecastSkeleton ? (
+                  <SkeletonBlock style={styles.metricValueSkeleton} />
+                ) : (
+                    <Text style={styles.metricPillValue}>{currentForecastDay?.windSpeed ?? '--'}kts</Text>
+                )}
               </View>
             </View>
             <Text style={styles.liveHint}>
@@ -559,21 +498,37 @@ export default function ForecastScreen({
         {/* Hourly Forecast Table by Day (every 3h) */}
         <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>PRONOSTICO DIARIO CADA 3 HORAS</Text>
 
-        {!hasLiveForecast || !hourlyForecastByDay.length ? (
+        {showForecastSkeleton ? (
+          [0, 1].map((idx) => (
+            <View key={`hourly-skeleton-${idx}`} style={styles.dayHourlySkeletonCard}>
+              <View style={styles.dayHourlyHeader}>
+                <SkeletonBlock style={styles.dayTitleSkeleton} />
+                <SkeletonBlock style={styles.daySubSkeleton} />
+              </View>
+              {[0, 1, 2, 3].map((rowIdx) => (
+                <View key={`hourly-skeleton-row-${rowIdx}`} style={styles.dayHourlySkeletonRow}>
+                  <SkeletonBlock style={styles.hourSkeletonCell} />
+                  <SkeletonBlock style={styles.surfSkeletonCell} />
+                  <SkeletonBlock style={styles.swellSkeletonCell} />
+                  <SkeletonBlock style={styles.windSkeletonCell} />
+                </View>
+              ))}
+            </View>
+          ))
+        ) : !hasLiveForecast || !hourlyForecastByDay.length ? (
           <Text style={styles.emptyForecastText}>Sin datos de forecast disponibles.</Text>
         ) : (
           hourlyForecastByDay.map((day, dayIdx) => (
             <View key={`${day.date}-${dayIdx}`} style={styles.dayHourlyCard}>
               <View style={styles.dayHourlyHeader}>
-                <Text style={styles.dayHourlyTitle}>{day.dayOfWeek || day.dayLabel}</Text>
-                <Text style={styles.dayHourlySub}>{formatShortDate(day.date)}</Text>
+                <Text style={styles.dayHourlyTitle}>{formatHourlyHeaderTitle(day.date, day.dayOfWeek || day.dayLabel)}</Text>
               </View>
                 <View style={styles.tableContainerNoScroll}>
                   <View style={styles.forecastTable}>
                     <View style={styles.tableHeaderRow}>
                       <View style={[styles.tableCell, styles.hourCell, styles.headerHourCell]} />
                       <View style={[styles.tableCell, styles.surfCell, styles.headerMainCell]}>
-                        <Text style={styles.tableHeader}>SURF</Text>
+                        <Text style={styles.tableHeader}>SURF (m)</Text>
                       </View>
                       <View style={[styles.tableCell, styles.swellCell, styles.headerMainCell]}>
                         <Text style={styles.tableHeader}>SWELL</Text>
@@ -585,9 +540,15 @@ export default function ForecastScreen({
 
                     {day.entries.map((hour, idx) => {
                       const kph = toKph(hour.windSpeed);
-                      const stars = getRowStars(hour.surfHeight ?? hour.swellHeight, kph);
+                      const gustKph = toKph(hour.windGust);
+                      const starCount = getRowStars(hour.surfHeight ?? hour.swellHeight, hour.swellPeriod, kph);
+                      const starColor = getColorByStarCount(starCount);
+                      const swellDeg = Number(hour.swellDirectionDeg);
+                      const swellAngle = Number.isFinite(swellDeg)
+                        ? getOppositeAngle(swellDeg)
+                        : getDirectionAngle(hour.swellDirection);
                       const windAngle = Number.isFinite(Number(hour.windDirectionDeg))
-                        ? Number(hour.windDirectionDeg)
+                        ? getOppositeAngle(hour.windDirectionDeg)
                         : getDirectionAngle(hour.windDirection);
 
                       return (
@@ -601,19 +562,53 @@ export default function ForecastScreen({
                           ]}
                         >
                           <View style={[styles.tableCell, styles.hourCell, styles.hourBandCell, idx % 2 === 1 ? styles.hourBandCellAlt : null]}>
-                            <Text style={[styles.tableHourText, styles.verticalHourText]}>{formatHourSlot(hour.time)}</Text>
+                            <View style={styles.hourMetaVerticalRow}>
+                              <View style={styles.verticalHourContainer}>
+                                <Text style={[styles.tableHourText, styles.verticalHourText]}>{formatHourSlotVertical(hour.time)}</Text>
+                              </View>
+                              <View style={styles.ratingBlocksRow}>
+                                {Array.from({ length: 5 }, (_item, blockIdx) => (
+                                  <View
+                                    key={`rating-block-${day.date}-${hour.time}-${idx}-${blockIdx}`}
+                                    style={[
+                                      styles.ratingBlock,
+                                      (5 - blockIdx) <= starCount
+                                        ? { backgroundColor: starColor }
+                                        : styles.ratingBlockEmpty,
+                                      blockIdx === 0 ? styles.ratingBlockFirst : null,
+                                      blockIdx === 4 ? styles.ratingBlockLast : null,
+                                    ]}
+                                  />
+                                ))}
+                              </View>
+                            </View>
                           </View>
 
                           <View style={[styles.tableCell, styles.surfCell, styles.surfBandCell]}>
-                            <Text style={[styles.metricValue, styles.surfMetricValue]}>
-                              {hour.surfHeight ?? hour.swellHeight ?? '--'}<Text style={styles.surfUnitSmall}>m</Text>
-                            </Text>
+                            <View style={styles.surfValuePanel}>
+                              <Text style={[styles.metricValue, styles.surfMetricValue]}>
+                                {formatSurfRange(hour.surfHeight ?? hour.swellHeight)}
+                              </Text>
+                            </View>
                           </View>
 
-                          <View style={[styles.tableCell, styles.swellCell, styles.combinedCell, styles.swellBandCell, idx % 2 === 1 ? styles.swellBandCellAlt : null]}>
-                            <Text style={styles.metricValue}>{hour.swellHeight ?? '--'}<Text style={styles.unitSmall}>m</Text></Text>
-                            <Text style={styles.swellSecondary}>{hour.swellPeriod ?? '--'}<Text style={styles.unitSmall}>s</Text> {hour.swellDirection ?? '--'}</Text>
-                            <Text style={styles.starLine}>{stars}</Text>
+                          <View style={[styles.tableCell, styles.swellCell, styles.swellBandCell, idx % 2 === 1 ? styles.swellBandCellAlt : null]}>
+                            <View style={styles.swellGridRow}>
+                              <View style={styles.swellGridCol}>
+                                <Text style={styles.swellDataValue}>{hour.swellHeight ?? '--'}<Text style={styles.swellUnitTiny}>m</Text></Text>
+                              </View>
+                              <View style={styles.swellGridCol}>
+                                <Text style={styles.swellDataValue}>{hour.swellPeriod ?? '--'}<Text style={styles.swellUnitTiny}>s</Text></Text>
+                              </View>
+                              <View style={styles.swellGridCol}>
+                                <DirectionTriangle
+                                  angle={swellAngle}
+                                  color="#3B4A59"
+                                  size={16}
+                                />
+                                <Text style={styles.swellDirectionDeg}>{Number.isFinite(swellDeg) ? `${Math.round(swellDeg)}°` : '--'}</Text>
+                              </View>
+                            </View>
                           </View>
 
                           <View
@@ -621,19 +616,22 @@ export default function ForecastScreen({
                               styles.tableCell,
                               styles.windCell,
                               styles.windCombinedCell,
-                              { backgroundColor: getWindColorBg(hour.windSpeed) },
                             ]}
                           >
                             <View style={styles.windMainInfo}>
-                              <Text style={styles.windSpeedText}>{kph ?? '--'} <Text style={styles.windUnit}>kph</Text></Text>
-                              <Text style={styles.windDirectionLine}>
-                                {hour.windDirection ?? '--'} {Number.isFinite(Number(hour.windDirectionDeg)) ? `${hour.windDirectionDeg}°` : ''}
-                              </Text>
+                              <View style={styles.windSpeedRow}>
+                                <Text style={styles.windSpeedText}>{kph ?? '--'}</Text>
+                                <View style={styles.windUnitStack}>
+                                  <Text style={[styles.windGustExponent, { color: getWindGustColor(gustKph) }]}>{Number.isFinite(gustKph) ? gustKph : '--'}</Text>
+                                  <Text style={styles.windUnit}>kph</Text>
+                                </View>
+                              </View>
                             </View>
                             <View style={[styles.windArrowPanel, idx % 2 === 0 ? styles.windArrowPanelEven : null]}>
                               <View style={{ transform: [{ rotate: `${windAngle}deg` }] }}>
-                                <ArrowUp size={24} color="#FFFFFF" />
+                                <ArrowUp size={24} color="#0F172A" />
                               </View>
+                              <Text style={styles.windArrowLabel}>{hour.windDirection ?? '--'}</Text>
                             </View>
                           </View>
                         </View>
@@ -645,86 +643,6 @@ export default function ForecastScreen({
           ))
         )}
 
-        {/* 16-Day Forecast Table */}
-        <Text style={[styles.sectionTitle, compact ? styles.sectionTitleCompact : null]}>PRONÓSTICO 16 DÍAS</Text>
-        
-        {!hasLiveForecast ? (
-          <Text style={styles.emptyForecastText}>No hay datos reales cargados todavía para este spot.</Text>
-        ) : (
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.tableContainer}
-            contentContainerStyle={styles.tableContent}
-          >
-            <View style={styles.forecastTable}>
-              {/* Header Row */}
-              <View style={styles.tableHeaderRow}>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellDay]}>DÍA</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>ALTURA</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>SWELL</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>PERÍODO</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>DIR</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.tableCellMetric]}>VIENTO</Text>
-              </View>
-              
-              {/* Data Rows */}
-              {displayForecast.slice(0, 16).map((day, idx) => (
-                <TouchableOpacity 
-                  key={idx}
-                  style={styles.tableDataRow}
-                  onPress={() => openDayDetail(day)}
-                  activeOpacity={0.6}
-                >
-                  <View style={[styles.tableCell, styles.tableCellDay]}>
-                    <Text style={styles.tableDayText}>{day.dayOfWeek.substring(0, 3)}</Text>
-                    <Text style={styles.tableDateText}>{day.date.substring(5)}</Text>
-                  </View>
-                  <View style={[styles.tableCell, styles.tableCellMetric]}>
-                    <View 
-                      style={[
-                        styles.ratingPill,
-                        { backgroundColor: SURFLINE_COLORS[day.rating] || SURFLINE_COLORS.FAIR }
-                      ]}>
-                      <Text style={styles.ratingPillText}>{day.rating}</Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {day.height.min}-{day.height.max}<Text style={styles.unitSmall}>m</Text>
-                  </Text>
-                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {day.primarySwell.height}<Text style={styles.unitSmall}>m</Text>
-                  </Text>
-                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {day.primarySwell.period}<Text style={styles.unitSmall}>s</Text>
-                  </Text>
-                  <Text style={[styles.tableCell, styles.tableCellMetric, styles.metricValue]}>
-                    {day.windDirection}
-                  </Text>
-                  <View 
-                    style={[
-                      styles.tableCell, 
-                      styles.tableCellMetric, 
-                      styles.windSpeedCell,
-                      { backgroundColor: getWindColorBg(day.windSpeed) }
-                    ]}
-                  >
-                    <Text style={styles.windSpeedText}>{day.windSpeed}</Text>
-                    <Text style={styles.unitSmall}>kts</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-        )}
-
-        {/* Modal de Detalles */}
-      <DayDetailModal
-        visible={modalVisible}
-        day={selectedDay}
-        spot={spot}
-        onClose={() => setModalVisible(false)}
-      />
       </Animated.ScrollView>
     </SafeAreaView>
   );
@@ -852,6 +770,25 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   liveHint: { color: '#64748B', fontSize: 12, marginTop: 10 },
+  skeletonBlock: {
+    backgroundColor: '#E2E8F0',
+    borderRadius: 6,
+  },
+  waveHeightSkeleton: {
+    marginTop: 4,
+    width: 118,
+    height: 40,
+    borderRadius: 8,
+  },
+  waveHeightSkeletonCompact: {
+    width: 100,
+    height: 34,
+  },
+  metricValueSkeleton: {
+    width: 54,
+    height: 14,
+    borderRadius: 5,
+  },
 
   // Forecast Table (Horizontal)
   sectionTitle: {
@@ -898,20 +835,94 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     overflow: 'visible',
   },
+  dayHourlySkeletonCard: {
+    marginHorizontal: 0,
+    marginBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  dayTitleSkeleton: {
+    width: 130,
+    height: 14,
+  },
+  daySubSkeleton: {
+    width: 68,
+    height: 12,
+  },
+  dayHourlySkeletonRow: {
+    minHeight: 62,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  hourSkeletonCell: {
+    width: 32,
+    height: 40,
+  },
+  surfSkeletonCell: {
+    flex: 1,
+    height: 38,
+  },
+  swellSkeletonCell: {
+    flex: 1.3,
+    height: 38,
+  },
+  windSkeletonCell: {
+    flex: 1.5,
+    height: 38,
+  },
+  sixteenDaySkeletonCard: {
+    marginHorizontal: 0,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+  },
+  dailySkeletonRow: {
+    minHeight: 56,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  dailyLeftSkeleton: {
+    width: 74,
+    height: 16,
+  },
+  dailyMidSkeleton: {
+    flex: 1,
+    height: 16,
+  },
+  dailyRightSkeleton: {
+    width: 64,
+    height: 16,
+  },
   dayHourlyHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingTop: 7,
+    paddingBottom: 14,
   },
   dayHourlyTitle: {
     color: '#0F172A',
-    fontSize: 13,
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '700',
     textTransform: 'capitalize',
   },
   dayHourlySub: {
@@ -929,9 +940,8 @@ const styles = StyleSheet.create({
   },
   tableHeaderRow: {
     flexDirection: 'row',
-    backgroundColor: '#EEF2F7',
-    borderBottomWidth: 1,
-    borderBottomColor: '#D9E2EC',
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 0,
   },
   tableDataRow: {
     flexDirection: 'row',
@@ -939,6 +949,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#D9E0E7',
     paddingVertical: 0,
     minHeight: 74,
+    marginLeft: 12,
   },
   tableDataRowAlt: {
     backgroundColor: '#FDFEFE',
@@ -963,21 +974,39 @@ const styles = StyleSheet.create({
   },
   hourCell: {
     flex: 0.9,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    paddingLeft: 0,
+    paddingVertical: 9,
+  },
+  hourMetaVerticalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 2,
+    width: '100%',
+    paddingLeft: 2,
   },
   surfCell: {
     flex: 1.2,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   swellCell: {
     flex: 1.75,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   windCell: {
     flex: 2.1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerHourCell: {
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
   },
   headerMainCell: {
-    backgroundColor: '#EEF2F7',
+    backgroundColor: '#FFFFFF',
   },
   tableHeader: {
     color: '#334155',
@@ -1012,7 +1041,7 @@ const styles = StyleSheet.create({
   surfMetricValue: {
     color: '#0F172A',
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   unitSmall: {
     color: '#5F6C78',
@@ -1027,64 +1056,151 @@ const styles = StyleSheet.create({
   windSpeedCell: {
     minWidth: 70,
     borderRadius: 0,
+    backgroundColor: '#FFFFFF',
   },
   windSpeedText: {
-    color: '#FFFFFF',
+    color: '#0F172A',
     fontSize: 14,
     fontWeight: '900',
   },
+  windSpeedRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  windUnitStack: {
+    marginLeft: 2,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-end',
+  },
   windUnit: {
-    color: '#E8F4FF',
+    color: '#334155',
     fontSize: 10,
     fontWeight: '700',
   },
+  windGustExponent: {
+    color: '#334155',
+    fontSize: 8,
+    fontWeight: '700',
+    lineHeight: 8,
+    marginBottom: -1,
+  },
   hourBandCell: {
-    backgroundColor: '#F3F6FA',
+    backgroundColor: '#FFFFFF',
   },
   hourBandCellAlt: {
-    backgroundColor: '#EDF2F7',
+    backgroundColor: '#FFFFFF',
   },
   surfBandCell: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#FFFFFF',
+  },
+  surfValuePanel: {
+    width: 85,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#E2E8F0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginRight: 6,
   },
   swellBandCell: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
   },
   swellBandCellAlt: {
-    backgroundColor: '#F3F7FB',
+    backgroundColor: '#FFFFFF',
   },
   combinedCell: {
     alignItems: 'flex-start',
     gap: 3,
+  },
+  swellGridRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  swellGridCol: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  swellGridHeaderText: {
+    color: '#334155',
+    fontSize: 9,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  swellDataValue: {
+    color: '#17212B',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  swellUnitTiny: {
+    color: '#5F6C78',
+    fontSize: 8,
+    fontWeight: '600',
   },
   swellSecondary: {
     color: '#3B4A59',
     fontSize: 11,
     fontWeight: '700',
   },
-  starLine: {
-    color: '#475569',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+  swellDirectionDeg: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 12,
+  },
+  swellSecondaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  directionTriangle: {
+    fontWeight: '900',
+    lineHeight: 14,
+  },
+  ratingBlocksRow: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
+    marginLeft: -2,
+  },
+  ratingBlock: {
+    width: 7,
+    height: 9,
+    backgroundColor: '#00A145',
+  },
+  ratingBlockEmpty: {
+    backgroundColor: '#CBD5E1',
+  },
+  ratingBlockFirst: {
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+  },
+  ratingBlockLast: {
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
   },
   windCombinedCell: {
+    backgroundColor: '#FFFFFF',
     borderRadius: 0,
-    alignItems: 'stretch',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    justifyContent: 'center',
     flexDirection: 'row',
     paddingHorizontal: 0,
     paddingVertical: 0,
-    borderLeftWidth: 1,
-    borderLeftColor: 'rgba(15,23,42,0.08)',
+    gap: 2,
   },
   windMainInfo: {
     flex: 1,
     justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: 6,
     gap: 2,
-    borderRightWidth: 1,
-    borderRightColor: 'rgba(15,23,42,0.10)',
   },
   windInlineRow: {
     marginTop: 2,
@@ -1096,29 +1212,50 @@ const styles = StyleSheet.create({
     width: 44,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(15,23,42,0.04)',
-    borderLeftWidth: 1,
-    borderLeftColor: 'rgba(15,23,42,0.10)',
+    gap: 2,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 8,
+    paddingVertical: 4,
+    marginRight: 6,
   },
   windArrowPanelEven: {
-    backgroundColor: 'rgba(15,23,42,0.02)',
+    backgroundColor: '#E2E8F0',
   },
   windDirectionLine: {
     color: '#0F172A',
     fontSize: 10,
     fontWeight: '700',
   },
+  windArrowLabel: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 12,
+  },
   emptyForecastText: { color: '#64748B', fontSize: 13, paddingHorizontal: 8, paddingVertical: 8 },
 
   tableHourText: {
     color: '#495867',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '400',
+    lineHeight: 12,
+  },
+  verticalHourContainer: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 0,
+    transform: [{ rotate: '270deg' }],
+    width: 30,
+    height: 18,
+  },
+  verticalHourChar: {
+    marginVertical: -2,
   },
   verticalHourText: {
-    transform: [{ rotate: '90deg' }],
-    width: 48,
     textAlign: 'center',
+    lineHeight: 14,
+    width: 30,
   },
   verticalHeaderText: {
     transform: [{ rotate: '90deg' }],
@@ -1155,12 +1292,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   ratingBadgeLarge: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    minWidth: 80,
+    minWidth: 72,
     minHeight: 60,
   },
   ratingBadgeLargeText: {

@@ -38,8 +38,8 @@ const toOneDecimal = (value) => {
 const toCardinal = (degValue) => {
   const deg = Number(degValue);
   if (!Number.isFinite(deg)) return 'N';
-  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  const index = Math.round((((deg % 360) + 360) % 360) / 45) % 8;
+  const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+  const index = Math.round((((deg % 360) + 360) % 360) / 22.5) % 16;
   return directions[index];
 };
 
@@ -120,15 +120,16 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
   // Intentar consulta completa, fallback a columnas básicas si falla
   let hourlyRows = null;
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('spot_forecast_hourly')
-      .select('forecast_time, sea_level_height_msl_m, sea_surface_temperature_c, wave_height_m, swell_wave_height_m, swell_wave_direction_deg, swell_wave_period_s, wind_speed_ms, wind_wave_direction_deg')
+      .select('forecast_time, sea_level_height_msl_m, sea_surface_temperature_c, wave_height_m, wave_direction_deg, wave_period_s, swell_wave_height_m, swell_wave_direction_deg, swell_wave_period_s, wind_speed_kts, wind_gust_kts, wind_direction_deg, wind_wave_direction_deg')
       .eq('provider', 'open-meteo')
       .eq('spot_name', spotName)
       .gte('forecast_time', `${startDate}T00:00:00+13:00`)
       .lte('forecast_time', `${endDate}T23:59:59+13:00`)
       .order('forecast_time', { ascending: true })
       .limit(800);
+    if (error) throw error;
     hourlyRows = data || [];
   } catch (_e) {
     // Fallback: consulta simplificada si las columnas no existen
@@ -172,6 +173,12 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
     const secondaryHeight = toOneDecimal(Math.max(0.2, primaryHeight * 0.55));
     const maxHeight = toOneDecimal(row.wave_height_max_m ?? primaryHeight);
     const minHeight = toOneDecimal(Math.max(0, maxHeight - 0.6));
+    const windSamplesKts = dayHourly
+      .map((h) => Number(h.wind_speed_kts))
+      .filter((v) => Number.isFinite(v));
+    const avgWindKts = windSamplesKts.length
+      ? Math.round((windSamplesKts.reduce((a, b) => a + b, 0) / windSamplesKts.length) * 10) / 10
+      : null;
 
     return {
       date: dateKey,
@@ -191,7 +198,7 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
         period: Math.max(5, Math.round(Number(row.swell_wave_period_max_s || row.wave_period_max_s || 8) - 2)),
         direction: toCardinal(row.wave_direction_dominant_deg),
       },
-      windSpeed: 0,
+      windSpeed: avgWindKts ?? '--',
       windDirection: toCardinal(row.wind_wave_direction_dominant_deg),
       waterTemp: Math.round(avgTemp),
       tideData: buildTideData(dayHourly),
@@ -202,8 +209,9 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
         const swellHeight = h.swell_wave_height_m ?? primaryHeight;
         const swellPeriod = h.swell_wave_period_s ?? row.swell_wave_period_max_s ?? 10;
         const swellDir = h.swell_wave_direction_deg ?? row.swell_wave_direction_dominant_deg;
-        const windSpeedMs = h.wind_speed_ms ?? 5;
-        const windDir = h.wind_wave_direction_deg ?? row.wind_wave_direction_dominant_deg;
+        const windSpeedKts = h.wind_speed_kts;
+        const windGustKts = h.wind_gust_kts;
+        const windDir = h.wind_direction_deg ?? h.wind_wave_direction_deg ?? row.wind_wave_direction_dominant_deg;
         
         return {
           time: new Date(h.forecast_time).toLocaleTimeString('en-US', { 
@@ -217,7 +225,12 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
           swellPeriod: Math.round(Number(swellPeriod)),
           swellDirection: toCardinal(swellDir),
           swellDirectionDeg: Number.isFinite(Number(swellDir)) ? Math.round(Number(swellDir)) : null,
-          windSpeed: Math.round((Number(windSpeedMs) * 1.943844) * 10) / 10,
+          windSpeed: Number.isFinite(Number(windSpeedKts))
+            ? Math.round(Number(windSpeedKts) * 10) / 10
+            : null,
+          windGust: Number.isFinite(Number(windGustKts))
+            ? Math.round(Number(windGustKts) * 10) / 10
+            : null,
           windDirection: toCardinal(windDir),
           windDirectionDeg: Number.isFinite(Number(windDir)) ? Math.round(Number(windDir)) : null,
           waterTemp: Math.round(Number(h.sea_surface_temperature_c || avgTemp)),

@@ -23,6 +23,7 @@ type ForecastSpotRow = {
 };
 
 const OPEN_METEO_BASE_URL = 'https://marine-api.open-meteo.com/v1/marine';
+const OPEN_METEO_WEATHER_BASE_URL = 'https://api.open-meteo.com/v1/forecast';
 const PROVIDER = 'open-meteo';
 const DEFAULT_SOURCE_MODEL = 'open-meteo-marine';
 
@@ -74,6 +75,12 @@ const DAILY_KEYS = [
   'swell_wave_direction_dominant',
   'swell_wave_period_max',
   'swell_wave_peak_period_max',
+] as const;
+
+const WEATHER_HOURLY_KEYS = [
+  'wind_speed_10m',
+  'wind_direction_10m',
+  'wind_gusts_10m',
 ] as const;
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
@@ -135,19 +142,46 @@ const makeOpenMeteoUrl = (spot: SpotInput, forecastDays: number, timezone: strin
   return `${OPEN_METEO_BASE_URL}?${params.toString()}`;
 };
 
+const makeOpenMeteoWeatherUrl = (spot: SpotInput, forecastDays: number, timezone: string) => {
+  const params = new URLSearchParams({
+    latitude: String(spot.lat),
+    longitude: String(spot.lng),
+    hourly: WEATHER_HOURLY_KEYS.join(','),
+    forecast_days: String(forecastDays),
+    timezone,
+    wind_speed_unit: 'kn',
+  });
+
+  return `${OPEN_METEO_WEATHER_BASE_URL}?${params.toString()}`;
+};
+
 const normalizeHourlyRows = (args: {
   runId: number;
   spotName: string;
   sourceModel: string;
   hourly: Record<string, unknown[]>;
+  weatherHourly?: Record<string, unknown[]>;
 }) => {
-  const { runId, spotName, sourceModel, hourly } = args;
+  const { runId, spotName, sourceModel, hourly, weatherHourly } = args;
   const times = Array.isArray(hourly?.time) ? hourly.time : [];
+
+  const windByIso = new Map<string, { speedKts: number | null; directionDeg: number | null; gustKts: number | null }>();
+  const weatherTimes = Array.isArray(weatherHourly?.time) ? weatherHourly.time : [];
+  weatherTimes.forEach((time, idx) => {
+    const iso = toIso(time);
+    if (!iso) return;
+    windByIso.set(iso, {
+      speedKts: numberOrNull(weatherHourly?.wind_speed_10m?.[idx]),
+      directionDeg: numberOrNull(weatherHourly?.wind_direction_10m?.[idx]),
+      gustKts: numberOrNull(weatherHourly?.wind_gusts_10m?.[idx]),
+    });
+  });
 
   return times
     .map((time, idx) => {
       const forecastTime = toIso(time);
       if (!forecastTime) return null;
+      const windSample = windByIso.get(forecastTime);
 
       return {
         run_id: runId,
@@ -159,8 +193,9 @@ const normalizeHourlyRows = (args: {
         wave_direction_deg: numberOrNull(hourly.wave_direction?.[idx]),
         wave_period_s: numberOrNull(hourly.wave_period?.[idx]),
         wave_peak_period_s: numberOrNull(hourly.wave_peak_period?.[idx]),
-        wind_speed_kts: null,
-        wind_direction_deg: null,
+        wind_speed_kts: windSample?.speedKts ?? null,
+        wind_gust_kts: windSample?.gustKts ?? null,
+        wind_direction_deg: windSample?.directionDeg ?? null,
         wind_wave_height_m: numberOrNull(hourly.wind_wave_height?.[idx]),
         wind_wave_direction_deg: numberOrNull(hourly.wind_wave_direction?.[idx]),
         wind_wave_period_s: numberOrNull(hourly.wind_wave_period?.[idx]),
@@ -203,6 +238,9 @@ const normalizeHourlyRows = (args: {
           sea_level_height_msl: hourly.sea_level_height_msl?.[idx],
           ocean_current_velocity: hourly.ocean_current_velocity?.[idx],
           ocean_current_direction: hourly.ocean_current_direction?.[idx],
+          wind_speed_10m: windSample?.speedKts ?? null,
+          wind_gusts_10m: windSample?.gustKts ?? null,
+          wind_direction_10m: windSample?.directionDeg ?? null,
         },
       };
     })
@@ -316,8 +354,8 @@ Deno.serve(async (req) => {
 
     for (const spot of spots) {
       try {
-        const url = makeOpenMeteoUrl(spot, forecastDays, timezone);
-        const response = await fetch(url, { method: 'GET' });
+        const marineUrl = makeOpenMeteoUrl(spot, forecastDays, timezone);
+        const response = await fetch(marineUrl, { method: 'GET' });
 
         if (!response.ok) {
           failedSpots += 1;
@@ -326,6 +364,17 @@ Deno.serve(async (req) => {
         }
 
         const data = await response.json();
+        let weatherHourly = {};
+        try {
+          const weatherUrl = makeOpenMeteoWeatherUrl(spot, forecastDays, timezone);
+          const weatherResponse = await fetch(weatherUrl, { method: 'GET' });
+          if (weatherResponse.ok) {
+            const weatherData = await weatherResponse.json();
+            weatherHourly = weatherData?.hourly || {};
+          }
+        } catch (_windError) {
+          weatherHourly = {};
+        }
         const generatedAt = new Date().toISOString();
 
         const { error: rawError } = await admin.from('spot_forecast_raw').insert({
@@ -351,6 +400,7 @@ Deno.serve(async (req) => {
           spotName: spot.name,
           sourceModel,
           hourly: data?.hourly || {},
+          weatherHourly,
         });
 
         for (const batch of chunk(hourlyRows, 500)) {

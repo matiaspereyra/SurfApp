@@ -13,7 +13,7 @@ export const SURFLINE_COLORS = {
 // Función para generar forecast de 16 días realista (en METROS)
 const generateForecast = (baseRating) => {
   const ratings = ['VERY_POOR', 'POOR', 'FAIR', 'GOOD', 'EPIC'];
-  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
   const ratingIndex = ratings.indexOf(baseRating);
   
   const forecast = [];

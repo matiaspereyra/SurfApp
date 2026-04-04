@@ -57,7 +57,7 @@ function toOneDecimal(val) {
 function toCardinal(deg) {
   if (!deg) return 'N';
   const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-  const idx = Math.round(deg / 22.5) % 16;
+  const idx = Math.round((((deg % 360) + 360) % 360) / 22.5) % 16;
   return dirs[idx];
 }
 
