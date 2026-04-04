@@ -43,13 +43,84 @@ const toCardinal = (degValue) => {
   return directions[index];
 };
 
-const deriveRating = (waveHeightM) => {
-  const h = Number(waveHeightM || 0);
-  if (h >= 2.8) return 'EPIC';
-  if (h >= 2.1) return 'GOOD';
-  if (h >= 1.3) return 'FAIR';
-  if (h >= 0.7) return 'POOR';
-  return 'VERY_POOR';
+const ratingFromStars = (starCount) => {
+  const stars = Number(starCount);
+  if (!Number.isFinite(stars)) return 'POOR';
+  if (stars <= 1) return 'VERY_POOR';
+  if (stars <= 3) return 'POOR';
+  if (stars === 4) return 'GOOD';
+  return 'EPIC';
+};
+
+const toKph = (kts) => {
+  const speed = Number(kts);
+  if (!Number.isFinite(speed)) return null;
+  return Math.round(speed * 1.852);
+};
+
+const getRowStars = (surfHeight, swellPeriodS, windKph) => {
+  const surf = Number(surfHeight);
+  const period = Number(swellPeriodS);
+  const wind = Number(windKph);
+  if (!Number.isFinite(surf)) return 1;
+
+  let score = 0;
+  if (surf >= 0.8) score += 1;
+  if (surf >= 1.4) score += 1;
+
+  if (Number.isFinite(period)) {
+    if (period >= 9) score += 1;
+    if (period >= 12) score += 1;
+  }
+
+  if (Number.isFinite(wind)) {
+    if (wind <= 18) score += 1;
+    if (wind <= 10) score += 1;
+  }
+
+  return Math.max(1, Math.min(5, score));
+};
+
+const getColorByStarCount = (starCount) => {
+  const stars = Number(starCount);
+  if (!Number.isFinite(stars)) return '#FFB100';
+  if (stars <= 1) return '#DC2626';
+  if (stars <= 3) return '#FFB100';
+  if (stars === 4) return '#00D15D';
+  return '#00A145';
+};
+
+const getNzCurrentHour = () => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: NZ_TIMEZONE,
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value);
+  return Number.isFinite(hour) ? hour : 12;
+};
+
+const getNzHourFromIso = (isoDateTime) => {
+  if (!isoDateTime) return null;
+  const dt = new Date(isoDateTime);
+  if (Number.isNaN(dt.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: NZ_TIMEZONE,
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(dt);
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value);
+  return Number.isFinite(hour) ? hour : null;
+};
+
+const toLiveHeightLabel = (surfHeightM) => {
+  const surf = Number(surfHeightM);
+  if (!Number.isFinite(surf)) return '--';
+  const min = Math.max(0, surf - 0.2);
+  const max = surf + 0.2;
+  return `${min.toFixed(1)}-${max.toFixed(1)}m`;
 };
 
 const neopreneByTemp = (tempC) => {
@@ -61,38 +132,118 @@ const neopreneByTemp = (tempC) => {
 };
 
 const buildTideData = (hourlyRows) => {
-  if (!hourlyRows?.length) {
-    return [
-      { hour: 0, height: 1, time: '00:00' },
-      { hour: 2, height: 1.1, time: '02:00' },
-      { hour: 4, height: 1.2, time: '04:00' },
-      { hour: 6, height: 1.3, time: '06:00' },
-      { hour: 8, height: 1.2, time: '08:00' },
-      { hour: 10, height: 1.1, time: '10:00' },
-      { hour: 12, height: 1.0, time: '12:00' },
-      { hour: 14, height: 1.1, time: '14:00' },
-      { hour: 16, height: 1.2, time: '16:00' },
-      { hour: 18, height: 1.3, time: '18:00' },
-      { hour: 20, height: 1.2, time: '20:00' },
-      { hour: 22, height: 1.1, time: '22:00' },
-    ];
-  }
+  if (!hourlyRows?.length) return [];
 
   const rows = hourlyRows
     .slice()
-    .sort((a, b) => new Date(a.forecast_time).getTime() - new Date(b.forecast_time).getTime())
-    .filter((_row, idx) => idx % 2 === 0)
-    .slice(0, 12);
+    .filter((row) => Number.isFinite(Number(row?.sea_level_height_msl_m)) && row?.forecast_time)
+    .sort((a, b) => new Date(a.forecast_time).getTime() - new Date(b.forecast_time).getTime());
+
+  if (!rows.length) return [];
+
+  const rawHeights = rows
+    .map((row) => Number(row.sea_level_height_msl_m))
+    .filter((value) => Number.isFinite(value));
+  const minRawHeight = rawHeights.length ? Math.min(...rawHeights) : 0;
+  const heightOffset = minRawHeight < 0 ? Math.abs(minRawHeight) : 0;
 
   return rows.map((row) => {
-    const dt = new Date(row.forecast_time);
-    const hour = dt.getHours();
+    const rawHeight = Number(row.sea_level_height_msl_m);
+    const time = new Date(row.forecast_time).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: NZ_TIMEZONE,
+    });
+    const hour = Number(time.slice(0, 2));
+
     return {
-      hour,
-      height: toOneDecimal(row.sea_level_height_msl_m ?? 1),
-      time: `${String(hour).padStart(2, '0')}:00`,
+      hour: Number.isFinite(hour) ? hour : 0,
+      height: Number((rawHeight + heightOffset).toFixed(3)),
+      time,
     };
   });
+};
+
+const getNzTodayDateKey = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: NZ_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+
+  const year = parts.find((p) => p.type === 'year')?.value;
+  const month = parts.find((p) => p.type === 'month')?.value;
+  const day = parts.find((p) => p.type === 'day')?.value;
+  if (!year || !month || !day) return '';
+  return `${year}-${month}-${day}`;
+};
+
+export const fetchLiveSpotRatings = async (spotNames = []) => {
+  if (!isSupabaseConfigured || !supabase || !Array.isArray(spotNames) || !spotNames.length) {
+    return {};
+  }
+
+  const todayKey = getNzTodayDateKey();
+  if (!todayKey) return {};
+
+  const { data: dailyRows, error: dailyError } = await supabase
+    .from('spot_forecast_daily')
+    .select('spot_name, forecast_date, wave_height_max_m')
+    .eq('provider', 'open-meteo')
+    .in('spot_name', spotNames)
+    .gte('forecast_date', todayKey)
+    .order('forecast_date', { ascending: true });
+
+  if (dailyError || !dailyRows?.length) {
+    return {};
+  }
+
+  const { data: hourlyRows } = await supabase
+    .from('spot_forecast_hourly')
+    .select('spot_name, forecast_time, wave_height_m, swell_wave_height_m, wave_period_s, swell_wave_period_s, wind_speed_kts')
+    .eq('provider', 'open-meteo')
+    .in('spot_name', spotNames)
+    .gte('forecast_time', `${todayKey}T00:00:00+13:00`)
+    .lte('forecast_time', `${todayKey}T23:59:59+13:00`)
+    .order('forecast_time', { ascending: true });
+
+  const currentHour = getNzCurrentHour();
+  const closestHourlyBySpot = new Map();
+  for (const row of hourlyRows || []) {
+    const name = row?.spot_name;
+    if (!name) continue;
+
+    const hour = getNzHourFromIso(row?.forecast_time);
+    if (!Number.isFinite(hour)) continue;
+    const distance = Math.abs(hour - currentHour);
+    const existing = closestHourlyBySpot.get(name);
+    if (!existing || distance < existing.distance) {
+      closestHourlyBySpot.set(name, { row, distance });
+    }
+  }
+
+  const bySpot = {};
+  for (const row of dailyRows) {
+    const name = row?.spot_name;
+    if (!name || bySpot[name]) continue;
+
+    const closestHourly = closestHourlyBySpot.get(name)?.row;
+    const surfHeight = closestHourly?.wave_height_m ?? closestHourly?.swell_wave_height_m ?? row?.wave_height_max_m;
+    const swellPeriod = closestHourly?.swell_wave_period_s ?? closestHourly?.wave_period_s ?? null;
+    const windKph = toKph(closestHourly?.wind_speed_kts);
+    const stars = getRowStars(surfHeight, swellPeriod, windKph);
+    const markerColor = getColorByStarCount(stars);
+
+    bySpot[name] = {
+      rating: ratingFromStars(stars),
+      markerColor,
+      heightLabel: toLiveHeightLabel(surfHeight),
+    };
+  }
+
+  return bySpot;
 };
 
 export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
@@ -179,11 +330,13 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
     const avgWindKts = windSamplesKts.length
       ? Math.round((windSamplesKts.reduce((a, b) => a + b, 0) / windSamplesKts.length) * 10) / 10
       : null;
+    const avgWindKph = toKph(avgWindKts);
+    const dayStars = getRowStars(primaryHeight, row.swell_wave_period_max_s || row.wave_period_max_s, avgWindKph);
 
     return {
       date: dateKey,
       dayOfWeek: toWeekDay(dateKey),
-      rating: deriveRating(maxHeight),
+      rating: ratingFromStars(dayStars),
       height: {
         min: minHeight,
         max: maxHeight,

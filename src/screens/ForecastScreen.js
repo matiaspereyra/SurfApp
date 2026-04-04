@@ -4,7 +4,10 @@ import {
   Animated, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Wind, Waves, Thermometer, Clock, Heart, Bell, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { Wind, Waves, Thermometer, Clock, Heart, Bell, ChevronDown, ChevronUp, Sunrise, Sunset } from 'lucide-react-native';
+import Svg, { Path, Circle, Line, Rect, Text as SvgText } from 'react-native-svg';
+import * as Haptics from 'expo-haptics';
+import SunCalc from 'suncalc';
 import AppHeader from '../components/AppHeader';
 import { SURFLINE_COLORS, getSpotShowName } from '../constants/Spots';
 import { fetchSpotForecastByName } from '../services/forecastService';
@@ -91,6 +94,20 @@ const getNzTodayDateKey = () => {
   const day = parts.find((p) => p.type === 'day')?.value;
   if (!year || !month || !day) return '';
   return `${year}-${month}-${day}`;
+};
+
+const getNzCurrentMinutes = () => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Pacific/Auckland',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 12 * 60;
+  return clamp(hour * 60 + minute, 0, 24 * 60 - 1);
 };
 
 const formatForecastDayLabel = (dateKey, fallbackDayOfWeek = '') => {
@@ -191,6 +208,321 @@ const formatSurfRange = (surfHeight) => {
   return `${min.toFixed(1)}-${max.toFixed(1)}`;
 };
 
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+const formatMinutesToHHMM = (minutes) => {
+  const safe = clamp(Math.round(minutes), 0, 24 * 60 - 1);
+  const hh = Math.floor(safe / 60);
+  const mm = safe % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+};
+
+const formatMinutesToAmPm = (minutes) => {
+  const hhmm = formatMinutesToHHMM(minutes);
+  const [hourRaw, minuteRaw] = hhmm.split(':');
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return '--';
+
+  const suffix = hour >= 12 ? 'pm' : 'am';
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${String(minute).padStart(2, '0')}${suffix}`;
+};
+
+const formatHHMMToAmPm = (hhmm) => {
+  const raw = String(hhmm || '').trim();
+  const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return '--';
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return '--';
+
+  const suffix = hour >= 12 ? 'pm' : 'am';
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${String(minute).padStart(2, '0')}${suffix}`;
+};
+
+const parseAmPmToMinutes = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  const match = raw.match(/^(\d{1,2}):(\d{2})(am|pm)$/);
+  if (!match) return null;
+
+  const hour12 = Number(match[1]);
+  const minute = Number(match[2]);
+  const suffix = match[3];
+  if (!Number.isFinite(hour12) || !Number.isFinite(minute)) return null;
+  if (hour12 < 1 || hour12 > 12 || minute < 0 || minute > 59) return null;
+
+  const baseHour = hour12 % 12;
+  const hour24 = suffix === 'pm' ? baseHour + 12 : baseHour;
+  return hour24 * 60 + minute;
+};
+
+const formatTideHeightMeters = (value, decimals = 1) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  const safe = Math.abs(num) < 1e-6 ? 0 : num;
+  return `${safe.toFixed(decimals)}m`;
+};
+
+const getMinutesFromHHMM = (hhmm) => {
+  const raw = String(hhmm || '').trim();
+  const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  if (hour < 0 || hour > 24 || minute < 0 || minute > 59) return null;
+
+  const total = hour * 60 + minute;
+  return clamp(total, 0, 24 * 60 - 1);
+};
+
+const formatDateToAmPmNz = (dateValue) => {
+  if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) return '--';
+  const formatted = dateValue.toLocaleTimeString('en-NZ', {
+    timeZone: 'Pacific/Auckland',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return formatted.replace(/\s+/g, '').toLowerCase();
+};
+
+const getSunTimesReal = (dateKey, lat, lng) => {
+  const latNum = Number(lat);
+  const lngNum = Number(lng);
+  const dt = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(dt.getTime()) || !Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
+    return {
+      firstLight: '6:10am',
+      sunrise: '6:40am',
+      sunset: '7:20pm',
+      lastLight: '7:50pm',
+    };
+  }
+
+  // Use noon anchor to keep requested calendar day stable around timezone edges.
+  const noonAnchor = new Date(`${dateKey}T12:00:00`);
+  const sunTimes = SunCalc.getTimes(noonAnchor, latNum, lngNum);
+
+  return {
+    firstLight: formatDateToAmPmNz(sunTimes?.dawn),
+    sunrise: formatDateToAmPmNz(sunTimes?.sunrise),
+    sunset: formatDateToAmPmNz(sunTimes?.sunset),
+    lastLight: formatDateToAmPmNz(sunTimes?.dusk),
+  };
+};
+
+const buildTideGraph = (points, width, height) => {
+  if (!Array.isArray(points) || !points.length) {
+    return { coords: [], path: '', fillPath: '' };
+  }
+
+  const minHeight = Math.min(...points.map((p) => Number(p?.height) || 0));
+  const maxHeight = Math.max(...points.map((p) => Number(p?.height) || 0));
+  const range = Math.max(0.1, maxHeight - minHeight);
+  const innerW = Math.max(1, width - 20);
+  const innerH = Math.max(1, height - 24);
+  const yCenter = 8 + innerH / 2;
+  const xForMinutes = (minutes) => 10 + (innerW * clamp(minutes, 0, TIDE_TIMELINE_END_MINUTES)) / TIDE_TIMELINE_END_MINUTES;
+
+  const coords = points.map((point, idx) => {
+    const pointMinutes = getMinutesFromHHMM(point?.time);
+    const clampedMinutes = Number.isFinite(pointMinutes)
+      ? clamp(pointMinutes, 0, TIDE_TIMELINE_END_MINUTES)
+      : null;
+    const x = Number.isFinite(pointMinutes)
+      ? xForMinutes(clampedMinutes)
+      : 10 + (innerW * idx) / Math.max(1, points.length - 1);
+    const normalized = ((Number(point?.height) || 0) - minHeight) / range;
+    const rawY = 8 + (1 - normalized) * innerH;
+    const flattenFactor = 0.38;
+    const verticalBias = innerH * 0.20;
+    const y = clamp(yCenter + (rawY - yCenter) * flattenFactor + verticalBias, 8, height - 6);
+    return { x, y, point, idx };
+  });
+
+  let path = '';
+  if (coords.length === 1) {
+    path = `M ${coords[0].x} ${coords[0].y}`;
+  } else if (coords.length === 2) {
+    // Fallback to a single curve when only two points are available.
+    const p0 = coords[0];
+    const p1 = coords[1];
+    const cx = (p0.x + p1.x) / 2;
+    const cy = (p0.y + p1.y) / 2;
+    path = `M ${p0.x} ${p0.y} Q ${cx} ${cy}, ${p1.x} ${p1.y}`;
+  } else {
+    // Midpoint quadratic spline: visually uniform wave without hard straight sections.
+    path = `M ${coords[0].x} ${coords[0].y}`;
+    for (let i = 1; i < coords.length - 1; i += 1) {
+      const curr = coords[i];
+      const next = coords[i + 1];
+      const midX = (curr.x + next.x) / 2;
+      const midY = (curr.y + next.y) / 2;
+      path += ` Q ${curr.x} ${curr.y}, ${midX} ${midY}`;
+    }
+    const prev = coords[coords.length - 2];
+    const last = coords[coords.length - 1];
+    path += ` Q ${prev.x} ${prev.y}, ${last.x} ${last.y}`;
+  }
+
+  const first = coords[0];
+  const last = coords[coords.length - 1];
+  const bottomY = height - 2;
+  const fillPath = `${path} L ${last.x} ${bottomY} L ${first.x} ${bottomY} Z`;
+
+  return { coords, path, fillPath, bottomY, xForMinutes };
+};
+
+const getTideExtrema = (coords) => {
+  if (!Array.isArray(coords) || coords.length < 3) return [];
+
+  const getQuadraticVertex = (p1, p2, p3) => {
+    const x1 = Number(p1?.m);
+    const x2 = Number(p2?.m);
+    const x3 = Number(p3?.m);
+    const y1 = Number(p1?.h);
+    const y2 = Number(p2?.h);
+    const y3 = Number(p3?.h);
+    if (![x1, x2, x3, y1, y2, y3].every(Number.isFinite)) return null;
+
+    const den = (x1 - x2) * (x1 - x3) * (x2 - x3);
+    if (!Number.isFinite(den) || Math.abs(den) < 1e-9) return null;
+
+    const a = (x3 * (y2 - y1) + x2 * (y1 - y3) + x1 * (y3 - y2)) / den;
+    const b = (x3 * x3 * (y1 - y2) + x2 * x2 * (y3 - y1) + x1 * x1 * (y2 - y3)) / den;
+    const c =
+      (x2 * x3 * (x2 - x3) * y1 + x3 * x1 * (x3 - x1) * y2 + x1 * x2 * (x1 - x2) * y3) / den;
+    if (!Number.isFinite(a) || Math.abs(a) < 1e-9 || !Number.isFinite(b) || !Number.isFinite(c)) return null;
+
+    const xv = -b / (2 * a);
+    const yv = a * xv * xv + b * xv + c;
+    if (!Number.isFinite(xv) || !Number.isFinite(yv)) return null;
+    return { xv, yv };
+  };
+
+  const refineExtrema = (item) => {
+    const i = Number(item?.idx);
+    if (!Number.isFinite(i) || i <= 0 || i >= coords.length - 1) {
+      return {
+        x: item.x,
+        y: item.y,
+        labelTime: formatHHMMToAmPm(item?.point?.time),
+        labelHeight: Number(item?.point?.height),
+      };
+    }
+
+    const prev = coords[i - 1];
+    const curr = coords[i];
+    const next = coords[i + 1];
+    const prevM = getMinutesFromHHMM(prev?.point?.time);
+    const currM = getMinutesFromHHMM(curr?.point?.time);
+    const nextM = getMinutesFromHHMM(next?.point?.time);
+    const prevH = Number(prev?.point?.height);
+    const currH = Number(curr?.point?.height);
+    const nextH = Number(next?.point?.height);
+
+    if (![prevM, currM, nextM, prevH, currH, nextH].every(Number.isFinite)) {
+      return {
+        x: item.x,
+        y: item.y,
+        labelTime: formatHHMMToAmPm(item?.point?.time),
+        labelHeight: Number(item?.point?.height),
+      };
+    }
+
+    const vertex = getQuadraticVertex(
+      { m: prevM, h: prevH },
+      { m: currM, h: currH },
+      { m: nextM, h: nextH }
+    );
+    if (!vertex) {
+      return {
+        x: item.x,
+        y: item.y,
+        labelTime: formatHHMMToAmPm(item?.point?.time),
+        labelHeight: currH,
+      };
+    }
+
+    const minM = Math.min(prevM, currM, nextM);
+    const maxM = Math.max(prevM, currM, nextM);
+    const refinedM = clamp(vertex.xv, minM, maxM);
+    const span = Math.max(1, nextM - prevM);
+    const ratio = clamp((refinedM - prevM) / span, 0, 1);
+    const refinedX = prev.x + (next.x - prev.x) * ratio;
+
+    return {
+      x: refinedX,
+      y: curr.y,
+      labelTime: formatMinutesToAmPm(refinedM),
+      labelHeight: vertex.yv,
+    };
+  };
+
+  const rawMax = [];
+  const rawMin = [];
+  for (let i = 1; i < coords.length - 1; i += 1) {
+    const prevY = Number(coords[i - 1]?.y);
+    const curY = Number(coords[i]?.y);
+    const nextY = Number(coords[i + 1]?.y);
+    if (!Number.isFinite(prevY) || !Number.isFinite(curY) || !Number.isFinite(nextY)) continue;
+
+    // In screen coordinates, smaller y is a visual maximum and larger y is a visual minimum.
+    if (curY <= prevY && curY <= nextY) {
+      rawMax.push({ ...coords[i], kind: 'max' });
+    } else if (curY >= prevY && curY >= nextY) {
+      rawMin.push({ ...coords[i], kind: 'min' });
+    }
+  }
+
+  const pickDistinctByX = (pool, count, sortFn) => {
+    const sorted = pool.slice().sort(sortFn);
+    const chosen = [];
+    for (const item of sorted) {
+      const tooClose = chosen.some((picked) => Math.abs((picked.idx || 0) - (item.idx || 0)) < 2);
+      if (tooClose) continue;
+      chosen.push(item);
+      if (chosen.length >= count) break;
+    }
+    return chosen;
+  };
+
+  // Prefer the true highest and lowest points of the plotted wave.
+  let maxes = pickDistinctByX(rawMax, 2, (a, b) => a.y - b.y);
+  let mins = pickDistinctByX(rawMin, 2, (a, b) => b.y - a.y);
+
+  // Fallback to actual curve points (still visually on-curve) if local extrema are insufficient.
+  if (maxes.length < 2) {
+    const fallbackMax = pickDistinctByX(coords.slice(1, -1).map((c) => ({ ...c, kind: 'max' })), 2, (a, b) => a.y - b.y);
+    maxes = fallbackMax.slice(0, 2);
+  }
+  if (mins.length < 2) {
+    const fallbackMin = pickDistinctByX(coords.slice(1, -1).map((c) => ({ ...c, kind: 'min' })), 2, (a, b) => b.y - a.y);
+    mins = fallbackMin.slice(0, 2);
+  }
+
+  return [...maxes, ...mins]
+    .sort((a, b) => a.x - b.x)
+    .map((item) => ({ ...item, ...refineExtrema(item) }));
+};
+
+const TIDE_TIMELINE_END_MINUTES = 23 * 60;
+const TIDE_TIMELINE_MAJOR_MARKS = [
+  { label: '12', minutes: 0 },
+  { label: '3', minutes: 3 * 60 },
+  { label: '6', minutes: 6 * 60 },
+  { label: '9', minutes: 9 * 60 },
+  { label: '12', minutes: 12 * 60 },
+  { label: '3', minutes: 15 * 60 },
+  { label: '6', minutes: 18 * 60 },
+  { label: '9', minutes: 21 * 60 },
+];
+
 const DirectionTriangle = ({ angle = 0, color = '#0F172A', size = 14 }) => (
   <View style={{ transform: [{ rotate: `${angle}deg` }] }}>
     <View
@@ -248,8 +580,14 @@ export default function ForecastScreen({
   const [liveSpot, setLiveSpot] = useState(null);
   const [loadingLiveForecast, setLoadingLiveForecast] = useState(false);
   const [expandedDailySections, setExpandedDailySections] = useState({});
+  const [tideCursorByDay, setTideCursorByDay] = useState({});
+  const [tideCursorMovedByDay, setTideCursorMovedByDay] = useState({});
   const [isSpotAlertOn, setIsSpotAlertOn] = useState(false);
   const [savingSpotAlert, setSavingSpotAlert] = useState(false);
+  const tideDragFrameRef = useRef(null);
+  const pendingTideCursorRef = useRef(null);
+  const tideHapticStateRef = useRef({});
+  const tideLastCursorRef = useRef({});
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const { width: screenWidth } = useWindowDimensions();
   const compact = isCompactLayout(screenWidth);
@@ -299,7 +637,18 @@ export default function ForecastScreen({
 
   useEffect(() => {
     setExpandedDailySections({});
+    setTideCursorByDay({});
+    setTideCursorMovedByDay({});
+    tideHapticStateRef.current = {};
+    tideLastCursorRef.current = {};
   }, [spot?.name]);
+
+  useEffect(() => () => {
+    if (tideDragFrameRef.current) {
+      cancelAnimationFrame(tideDragFrameRef.current);
+      tideDragFrameRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -407,6 +756,50 @@ export default function ForecastScreen({
       ...prev,
       [dayKey]: !prev[dayKey],
     }));
+  };
+
+  const setTideCursor = (dayKey, value, withHaptics = true) => {
+    const clampedValue = clamp(value, 0, 1);
+    pendingTideCursorRef.current = { dayKey, value: clampedValue };
+
+    if (withHaptics) {
+      const step = Math.round(clampedValue * 12);
+      const now = Date.now();
+      const state = tideHapticStateRef.current[dayKey] || { step: -1, timestamp: 0 };
+      if (step !== state.step && now - state.timestamp > 90) {
+        tideHapticStateRef.current[dayKey] = { step, timestamp: now };
+        Haptics.selectionAsync().catch(() => {});
+      }
+    }
+
+    if (tideDragFrameRef.current) return;
+    tideDragFrameRef.current = requestAnimationFrame(() => {
+      const pending = pendingTideCursorRef.current;
+      tideDragFrameRef.current = null;
+      if (!pending) return;
+
+      const previous = tideLastCursorRef.current[pending.dayKey];
+      if (Number.isFinite(previous) && Math.abs(previous - pending.value) < 0.005) {
+        pendingTideCursorRef.current = null;
+        return;
+      }
+
+      tideLastCursorRef.current[pending.dayKey] = pending.value;
+      setTideCursorByDay((prev) => ({
+        ...prev,
+        [pending.dayKey]: pending.value,
+      }));
+      pendingTideCursorRef.current = null;
+    });
+  };
+
+  const handleTideTouch = (dayKey, locationX, width, isStart = false) => {
+    if (isStart) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    } else {
+      setTideCursorMovedByDay((prev) => (prev?.[dayKey] ? prev : { ...prev, [dayKey]: true }));
+    }
+    setTideCursor(dayKey, locationX / width, true);
   };
 
   const handleToggleSpotAlert = async () => {
@@ -563,13 +956,49 @@ export default function ForecastScreen({
         ) : (
           hourlyForecastByDay.map((day, dayIdx) => (
             <View key={`${day.date}-${dayIdx}`} style={styles.dayHourlyCard}>
+              {(() => {
+                const dayKey = day.date || String(dayIdx);
+                const isExpanded = Boolean(expandedDailySections[dayKey]);
+                const shownEntries = isExpanded
+                  ? day.entries
+                  : day.entries.filter((hour) => {
+                      const hourValue = getHourFromTime(hour?.time);
+                      return hourValue === 6 || hourValue === 12 || hourValue === 18;
+                    });
+                const tidePoints = Array.isArray(day.tideData) ? day.tideData : [];
+                const graphWidth = Math.max(220, screenWidth - 12);
+                const graphHeight = 156;
+                const nowCursor = clamp(getNzCurrentMinutes() / TIDE_TIMELINE_END_MINUTES, 0, 1);
+                const defaultTideCursor = nowCursor;
+                const tideCursor = Number.isFinite(tideCursorByDay[dayKey]) ? tideCursorByDay[dayKey] : defaultTideCursor;
+                const sunTimes = getSunTimesReal(day.date, spot?.lat, spot?.lng);
+                const sunriseMinutes = parseAmPmToMinutes(sunTimes.sunrise);
+                const sunsetMinutes = parseAmPmToMinutes(sunTimes.sunset);
+                const graph = buildTideGraph(tidePoints, graphWidth, graphHeight);
+                const extrema = getTideExtrema(graph.coords);
+                const preSunriseMinutes = Number.isFinite(sunriseMinutes)
+                  ? clamp(sunriseMinutes, 0, TIDE_TIMELINE_END_MINUTES)
+                  : null;
+                const postSunsetMinutes = Number.isFinite(sunsetMinutes)
+                  ? clamp(sunsetMinutes, 0, TIDE_TIMELINE_END_MINUTES)
+                  : null;
+                const timelineTickMinutes = Array.from({ length: 24 }, (_item, idx) => idx * 60);
+                const cursorX = clamp(tideCursor * graphWidth, 0, graphWidth);
+                const selected = graph.coords.length
+                  ? graph.coords.reduce((closest, point) => (
+                      Math.abs(point.x - cursorX) < Math.abs(closest.x - cursorX) ? point : closest
+                    ), graph.coords[0])
+                  : null;
+
+                return (
+                  <>
               <TouchableOpacity
-                onPress={() => toggleDaySection(day.date || String(dayIdx))}
+                onPress={() => toggleDaySection(dayKey)}
                 activeOpacity={0.85}
                 style={styles.dayHourlyHeader}
               >
                 <View style={styles.dayHeaderTitleRow}>
-                  {expandedDailySections[day.date || String(dayIdx)] ? (
+                  {isExpanded ? (
                     <ChevronUp size={16} color="#64748B" />
                   ) : (
                     <ChevronDown size={16} color="#64748B" />
@@ -578,11 +1007,15 @@ export default function ForecastScreen({
                 </View>
                 <View style={styles.dayHeaderActionRow}>
                   <Text style={styles.dayHeaderActionText}>
-                    {expandedDailySections[day.date || String(dayIdx)] ? 'COLAPSAR' : 'VER TODO'}
+                    {isExpanded ? 'COLAPSAR' : 'VER TODO'}
                   </Text>
                 </View>
               </TouchableOpacity>
-                <View style={styles.tableContainerNoScroll}>
+                <TouchableOpacity
+                  onPress={() => toggleDaySection(dayKey)}
+                  activeOpacity={1}
+                  style={styles.tableContainerNoScroll}
+                >
                   <View style={styles.forecastTable}>
                     <View style={styles.tableHeaderRow}>
                       <View style={[styles.tableCell, styles.hourCell, styles.headerHourCell]} />
@@ -597,13 +1030,7 @@ export default function ForecastScreen({
                       </View>
                     </View>
 
-                    {(expandedDailySections[day.date || String(dayIdx)]
-                      ? day.entries
-                      : day.entries.filter((hour) => {
-                          const hourValue = getHourFromTime(hour?.time);
-                          return hourValue === 6 || hourValue === 12 || hourValue === 18;
-                        })
-                    ).map((hour, idx) => {
+                    {shownEntries.map((hour, idx) => {
                       const kph = toKph(hour.windSpeed);
                       const gustKph = toKph(hour.windGust);
                       const starCount = getRowStars(hour.surfHeight ?? hour.swellHeight, hour.swellPeriod, kph);
@@ -701,7 +1128,199 @@ export default function ForecastScreen({
                       );
                     })}
                   </View>
-                </View>
+                </TouchableOpacity>
+                {isExpanded ? (
+                  <View style={styles.tideSectionWrap}>
+                    <View style={styles.tideSectionTopBorder} />
+                    <View style={styles.tideSectionTitleRow}>
+                      <Text style={styles.tideSectionTitle}>TIDES (m)</Text>
+                    </View>
+                    <Text style={styles.tideSpotMeta}>{spotTitle} · {spot?.region || 'New Zealand'}</Text>
+
+                    <View
+                      style={styles.tideWaveCard}
+                      onStartShouldSetResponder={() => true}
+                      onMoveShouldSetResponder={() => true}
+                      onResponderGrant={(evt) => handleTideTouch(dayKey, evt.nativeEvent.locationX, graphWidth, true)}
+                      onResponderMove={(evt) => handleTideTouch(dayKey, evt.nativeEvent.locationX, graphWidth)}
+                    >
+                      <Svg width={graphWidth} height={graphHeight}>
+                        <Path d={graph.fillPath} fill="#DFEAF0" stroke="none" />
+                        <Path d={graph.path} stroke="#0F172A" strokeWidth={2.2} fill="none" />
+                        {Number.isFinite(preSunriseMinutes) && preSunriseMinutes > 0 ? (
+                          <Rect
+                            x={0}
+                            y={0}
+                            width={Math.max(0, graph.xForMinutes(preSunriseMinutes))}
+                            height={graphHeight}
+                            fill="rgba(15,23,42,0.08)"
+                          />
+                        ) : null}
+                        {Number.isFinite(postSunsetMinutes) && postSunsetMinutes < TIDE_TIMELINE_END_MINUTES ? (
+                          <Rect
+                            x={Math.max(0, graph.xForMinutes(postSunsetMinutes))}
+                            y={0}
+                            width={Math.max(0, graphWidth - graph.xForMinutes(postSunsetMinutes))}
+                            height={graphHeight}
+                            fill="rgba(15,23,42,0.08)"
+                          />
+                        ) : null}
+                        {extrema.map((point, idx) => (
+                          <React.Fragment key={`tide-extrema-${dayKey}-${idx}`}>
+                            <Line
+                              x1={point.x}
+                              y1={point.y}
+                              x2={point.x}
+                              y2={graphHeight - 2}
+                              stroke="#64748B"
+                              strokeWidth={1.2}
+                            />
+                            {(() => {
+                              const timeLabel = point.labelTime || formatHHMMToAmPm(point.point?.time);
+                              const heightLabel = formatTideHeightMeters(point.labelHeight, 1);
+                              const firstLineY = Math.max(10, point.y - 16);
+                              const secondLineY = Math.max(20, point.y - 6);
+
+                              return (
+                                <>
+                                  <SvgText
+                                    x={point.x}
+                                    y={firstLineY}
+                                    fontSize="9"
+                                    fontWeight="700"
+                                    fill="#475569"
+                                    textAnchor="middle"
+                                  >
+                                    {timeLabel}
+                                  </SvgText>
+                                  <SvgText
+                                    x={point.x}
+                                    y={secondLineY}
+                                    fontSize="8"
+                                    fontWeight="700"
+                                    fill="#475569"
+                                    textAnchor="middle"
+                                  >
+                                    {heightLabel}
+                                  </SvgText>
+                                </>
+                              );
+                            })()}
+                          </React.Fragment>
+                        ))}
+                        {selected ? (
+                          <>
+                            <Line x1={selected.x} y1={24} x2={selected.x} y2={graphHeight - 2} stroke="#0F172A" strokeWidth={1.8} />
+                            <Circle cx={selected.x} cy={selected.y} r={5} fill="#6F8FA3" />
+                          </>
+                        ) : null}
+                      </Svg>
+
+                      {selected ? (
+                        <View
+                          style={[
+                            styles.tideCursorInfo,
+                            {
+                              left: clamp(selected.x - 44, 4, graphWidth - 92),
+                            },
+                          ]}
+                        >
+                          <Text style={styles.tideCursorTime}>
+                            {!tideCursorMovedByDay[dayKey] ? 'Now' : formatHHMMToAmPm(selected?.point?.time)}
+                          </Text>
+                          <View style={styles.tideCursorHeightPill}>
+                            <Text style={styles.tideCursorHeightText}>
+                              {formatTideHeightMeters(selected?.point?.height, 2)}
+                            </Text>
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    <View style={styles.tideTimelineWrap}>
+                      <Svg width={graphWidth} height={24}>
+                        <Line
+                          x1={graph.xForMinutes(0)}
+                          y1={1}
+                          x2={graph.xForMinutes(TIDE_TIMELINE_END_MINUTES)}
+                          y2={1}
+                          stroke="#CBD5E1"
+                          strokeWidth={1}
+                        />
+                        {timelineTickMinutes.map((tickMinutes) => {
+                          const isMajor = tickMinutes % 180 === 0 || tickMinutes >= 22 * 60;
+                          return (
+                            <Line
+                              key={`${dayKey}-tick-${tickMinutes}`}
+                              x1={graph.xForMinutes(tickMinutes)}
+                              y1={1}
+                              x2={graph.xForMinutes(tickMinutes)}
+                              y2={isMajor ? 7 : 5}
+                              stroke="#CBD5E1"
+                              strokeWidth={1}
+                            />
+                          );
+                        })}
+                        {TIDE_TIMELINE_MAJOR_MARKS.map((mark) => {
+                          const isBeforeSunrise = Number.isFinite(preSunriseMinutes) && mark.minutes < preSunriseMinutes;
+                          const isAfterSunset = Number.isFinite(postSunsetMinutes) && mark.minutes > postSunsetMinutes;
+                          const isNight = isBeforeSunrise || isAfterSunset;
+                          const textColor = isNight ? '#475569' : '#64748B';
+                          return (
+                            <SvgText
+                              key={`${dayKey}-timeline-label-${mark.minutes}`}
+                              x={graph.xForMinutes(mark.minutes)}
+                              y={18}
+                              fontSize="10"
+                              fontWeight="700"
+                              fill={textColor}
+                              textAnchor="middle"
+                            >
+                              {mark.label}
+                            </SvgText>
+                          );
+                        })}
+                      </Svg>
+                    </View>
+
+                    <View style={styles.lightColumnsRow}>
+                      <View style={styles.lightColumnCard}>
+                        <View style={styles.lightColumnIconWrap}>
+                          <Sunrise size={16} color="#64748B" />
+                        </View>
+                        <View style={styles.lightColumnRows}>
+                          <View style={styles.lightColumnRow}>
+                            <Text style={styles.lightLabel}>First light</Text>
+                            <Text style={styles.lightValue}>{sunTimes.firstLight}</Text>
+                          </View>
+                          <View style={styles.lightColumnRow}>
+                            <Text style={styles.lightLabel}>Sunrise</Text>
+                            <Text style={styles.lightValue}>{sunTimes.sunrise}</Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      <View style={styles.lightColumnCard}>
+                        <View style={styles.lightColumnIconWrap}>
+                          <Sunset size={16} color="#64748B" />
+                        </View>
+                        <View style={styles.lightColumnRows}>
+                          <View style={styles.lightColumnRow}>
+                            <Text style={styles.lightLabel}>Last light</Text>
+                            <Text style={styles.lightValue}>{sunTimes.lastLight}</Text>
+                          </View>
+                          <View style={styles.lightColumnRow}>
+                            <Text style={styles.lightLabel}>Sunset</Text>
+                            <Text style={styles.lightValue}>{sunTimes.sunset}</Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
+                  </>
+                );
+              })()}
             </View>
           ))
         )}
@@ -1015,6 +1634,162 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 11,
     fontWeight: '800',
+  },
+  tideSectionWrap: {
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    paddingHorizontal: 6,
+    paddingTop: 12,
+    paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  tideSectionTopBorder: {
+    height: 0,
+  },
+  tideSectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  tideSectionTitle: {
+    color: '#334155',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  tideSpotMeta: {
+    color: '#94A3B8',
+    fontSize: 11,
+    marginTop: 4,
+    marginBottom: 24,
+  },
+  tideWaveCard: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderColor: 'transparent',
+    borderRadius: 8,
+    overflow: 'visible',
+    alignItems: 'center',
+    paddingTop: 14,
+    paddingBottom: 0,
+    marginTop: 6,
+    marginBottom: 0,
+  },
+  tideCursorInfo: {
+    position: 'absolute',
+    top: 0,
+    width: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'none',
+  },
+  tideCursorTime: {
+    color: '#0F172A',
+    fontSize: 10,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  tideCursorHeightPill: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#0F172A',
+    borderRadius: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  tideCursorHeightText: {
+    color: '#0F172A',
+    fontSize: 8,
+    fontWeight: '600',
+  },
+  tideTimelineWrap: {
+    marginTop: -2,
+    marginBottom: 10,
+  },
+  tideTimelineRule: {
+    borderTopWidth: 1,
+    borderTopColor: '#CBD5E1',
+    marginHorizontal: 10,
+    height: 8,
+    position: 'relative',
+  },
+  tideTimelineTicksRow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  tideTimelineTick: {
+    width: 1,
+    backgroundColor: '#CBD5E1',
+  },
+  tideTimelineTickMajor: {
+    height: 6,
+  },
+  tideTimelineTickMinor: {
+    height: 4,
+  },
+  tideTimelineRow: {
+    marginTop: 1,
+    marginBottom: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+  },
+  tideTimelineLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  tideTimelineLabelPreSun: {
+    textShadowColor: 'rgba(15, 23, 42, 0.28)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  lightColumnsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  lightColumnCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 0,
+    borderColor: 'transparent',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    gap: 8,
+  },
+  lightColumnIconWrap: {
+    width: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lightColumnRows: {
+    flex: 1,
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  lightColumnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  lightLabel: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  lightValue: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '400',
   },
   forecastTable: {
     borderRadius: 0,

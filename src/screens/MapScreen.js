@@ -10,6 +10,7 @@ import { MAP_DARK_STYLE } from '../constants/MapStyle';
 import { NZ_SPOTS } from '../constants/Spots';
 import { UI_COLORS } from '../theme/ui';
 import { fetchCommunityReports, fetchCommunityReportsExcludingViewed, markReportAsViewed, subscribeToCommunityReports } from '../services/communityService';
+import { fetchLiveSpotRatings } from '../services/forecastService';
 import { requestPushPermission } from '../services/notificationService';
 
 const NEARBY_COMMENT_RADIUS_M = 20000;
@@ -54,6 +55,8 @@ export default function MapScreen({
     longitudeDelta: 0.08,
   });
   const [userCoords, setUserCoords] = useState(null);
+  const [mapSpots, setMapSpots] = useState(NZ_SPOTS);
+  const [mapRatingsReady, setMapRatingsReady] = useState(false);
   const [hasNearbyAlert, setHasNearbyAlert] = useState(false);
   const [nearbyCommentCount, setNearbyCommentCount] = useState(0);
   const [nearbyReports, setNearbyReports] = useState([]);
@@ -105,6 +108,41 @@ export default function MapScreen({
 
     return () => {
       mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadLiveMapRatings = async ({ markReady = false } = {}) => {
+      try {
+        const liveBySpot = await fetchLiveSpotRatings(NZ_SPOTS.map((spot) => spot.name));
+        if (!mounted) return;
+
+        setMapSpots(
+          NZ_SPOTS.map((spot) => ({
+            ...spot,
+            rating: liveBySpot?.[spot.name]?.rating || '--',
+            height: liveBySpot?.[spot.name]?.heightLabel || '--',
+            markerColor: liveBySpot?.[spot.name]?.markerColor || null,
+          }))
+        );
+      } finally {
+        if (mounted && markReady) {
+          setMapRatingsReady(true);
+        }
+      }
+    };
+
+    loadLiveMapRatings({ markReady: true });
+
+    const intervalId = setInterval(() => {
+      loadLiveMapRatings();
+    }, 5 * 60 * 1000);
+
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
     };
   }, []);
 
@@ -245,10 +283,10 @@ export default function MapScreen({
     const minLng = region.longitude - region.longitudeDelta / 2 - lngBuffer;
     const maxLng = region.longitude + region.longitudeDelta / 2 + lngBuffer;
 
-    return NZ_SPOTS.filter(
+    return mapSpots.filter(
       (spot) => spot.lat >= minLat && spot.lat <= maxLat && spot.lng >= minLng && spot.lng <= maxLng
     );
-  }, [region]);
+  }, [mapSpots, region]);
 
   const spotsToRender =
     selectedSpot && !visibleSpots.some((spot) => spot.id === selectedSpot.id)
@@ -400,17 +438,19 @@ export default function MapScreen({
             setRegion(nextRegion);
           }}
         >
-          {spotsToRender.map((spot) => (
-            <SpotMarker
-              key={spot.id}
-              spot={spot}
-              isSelected={selectedSpot?.id === spot.id}
-              onPress={(nextSpot) => {
-                markerPressedRef.current = true;
-                onSpotSelect(nextSpot);
-              }}
-            />
-          ))}
+          {mapRatingsReady
+            ? spotsToRender.map((spot) => (
+                <SpotMarker
+                  key={spot.id}
+                  spot={spot}
+                  isSelected={selectedSpot?.id === spot.id}
+                  onPress={(nextSpot) => {
+                    markerPressedRef.current = true;
+                    onSpotSelect(nextSpot);
+                  }}
+                />
+              ))
+            : null}
         </MapView>
 
         <View style={[styles.controls, { bottom: bottomNavOffset + 200 }]}>

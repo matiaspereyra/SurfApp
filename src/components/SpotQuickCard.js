@@ -2,10 +2,33 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronRight, Waves } from 'lucide-react-native';
-import { SURFLINE_COLORS, getSpotShowName } from '../constants/Spots';
+import { getSpotShowName } from '../constants/Spots';
+
+const toMetersLabel = (heightValue) => {
+  const raw = String(heightValue || '').trim();
+  if (!raw) return '--';
+
+  if (/m|metros?/i.test(raw)) {
+    const cleaned = raw.replace(/\s*m(?:etros?)?/gi, '').trim();
+    return cleaned || '--';
+  }
+
+  const matches = raw.match(/\d+(?:\.\d+)?/g);
+  if (!matches?.length) return raw;
+
+  const meters = matches
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .map((value) => (value * 0.3048).toFixed(1));
+
+  return meters.join('-') || '--';
+};
 
 export const SpotQuickCard = ({ spot, onOpenForecast }) => {
   if (!spot) return null;
+
+  const ratingLabel = String(spot.rating || '--').replaceAll('_', ' ');
+  const heightMetersLabel = toMetersLabel(spot.height);
 
   const insets = useSafeAreaInsets();
   const opacity = useRef(new Animated.Value(0)).current;
@@ -60,13 +83,13 @@ export const SpotQuickCard = ({ spot, onOpenForecast }) => {
           { opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] }
         ]}
       >
-        <View style={[styles.indicator, { backgroundColor: SURFLINE_COLORS[spot.rating] }]} />
+        <View style={[styles.indicator, { backgroundColor: spot.markerColor || '#64748B' }]} />
         <View style={styles.content}>
           <View style={{ flex: 1 }}>
             <Text style={styles.name}>{getSpotShowName(spot)}</Text>
             <View style={styles.row}>
               <Waves size={14} color="#8E9196" />
-              <Text style={styles.details}> {spot.height} FT • {spot.rating}</Text>
+              <Text style={styles.details}> {heightMetersLabel} m • {ratingLabel}</Text>
             </View>
             <Text style={styles.ctaHint}>Tap para ver forecast completo</Text>
           </View>

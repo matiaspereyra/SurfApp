@@ -1,7 +1,25 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Marker } from 'react-native-maps';
-import { SURFLINE_COLORS } from '../constants/Spots';
+
+const toMetersLabel = (heightValue) => {
+  const raw = String(heightValue || '').trim();
+  if (!raw) return '--';
+
+  if (/m|metros?/i.test(raw)) {
+    return raw.replace(/\s*m(?:etros?)?/gi, '').trim() || '--';
+  }
+
+  const matches = raw.match(/\d+(?:\.\d+)?/g);
+  if (!matches?.length) return raw;
+
+  const meters = matches
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .map((value) => (value * 0.3048).toFixed(1));
+
+  return meters.join('-') || '--';
+};
 
 export const SpotMarker = ({ spot, onPress, isSelected = false }) => (
   <Marker
@@ -12,11 +30,11 @@ export const SpotMarker = ({ spot, onPress, isSelected = false }) => (
     <View
       style={[
         styles.marker,
-        { backgroundColor: SURFLINE_COLORS[spot.rating] },
+        { backgroundColor: spot.markerColor || '#64748B' },
         isSelected && styles.markerSelected,
       ]}
     >
-      <Text style={styles.markerText}>{spot.height}</Text>
+      <Text style={styles.markerText}>{toMetersLabel(spot.height)}</Text>
     </View>
   </Marker>
 );
