@@ -14,6 +14,7 @@ import BottomNavigation from './src/components/BottomNavigation';
 import { getCurrentUser, onAuthStateChange } from './src/services/authService';
 import { ensureUserProfile } from './src/services/profileService';
 import { getPushToken, savePushTokenToDatabase, savePushPresenceToDatabase } from './src/services/notificationService';
+import { fetchSpotForecastByName, getCachedForecast, hasAnyForecastData, requestForecastRefresh, setCachedForecast } from './src/services/forecastService';
 import { NZ_SPOTS } from './src/constants/Spots';
 
 const FAVORITES_STORAGE_KEY = 'surfapp:favorites:v1';
@@ -33,10 +34,15 @@ export default function App() {
   const [authUser, setAuthUser] = useState(null);
   const [authProfile, setAuthProfile] = useState(null);
   const [authBootstrapped, setAuthBootstrapped] = useState(false);
+  const [liveForecastBySpot, setLiveForecastBySpot] = useState({});
+  const [forecastBootstrapping, setForecastBootstrapping] = useState(false);
+  const [forecastBootstrapProgress, setForecastBootstrapProgress] = useState(0);
+  const [forecastBootstrapMessage, setForecastBootstrapMessage] = useState('');
   const mapOpacity = useRef(new Animated.Value(1)).current;
   const mapSlide = useRef(new Animated.Value(0)).current;
   const forecastOpacity = useRef(new Animated.Value(0)).current;
   const forecastSlide = useRef(new Animated.Value(300)).current;
+  const forecastBootstrapRanRef = useRef(false);
   const pushSetupAttemptedRef = useRef(false);
   const lastPushSetupUserIdRef = useRef(null);
   const appStateRef = useRef(AppState.currentState);
@@ -91,6 +97,64 @@ export default function App() {
       unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!authBootstrapped || forecastBootstrapRanRef.current) return;
+
+    let mounted = true;
+    let cancelled = false;
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    forecastBootstrapRanRef.current = true;
+
+    const bootstrapForecast = async () => {
+      setForecastBootstrapping(true);
+      setForecastBootstrapProgress(0.1);
+      setForecastBootstrapMessage('Verificando forecast...');
+
+      const existingData = await hasAnyForecastData();
+      if (!mounted || cancelled) return;
+
+      if (existingData) {
+        setForecastBootstrapProgress(1);
+        setForecastBootstrapping(false);
+        return;
+      }
+
+      setForecastBootstrapMessage('Sin datos, actualizando forecast...');
+      await requestForecastRefresh().catch(() => {});
+
+      const maxAttempts = 8;
+      for (let attempt = 1; attempt <= maxAttempts && mounted && !cancelled; attempt += 1) {
+        setForecastBootstrapProgress(Math.min(0.95, 0.1 + (attempt / maxAttempts) * 0.9));
+        await wait(6000);
+
+        if (!mounted || cancelled) return;
+
+        const refreshed = await hasAnyForecastData();
+        if (!mounted || cancelled) return;
+
+        if (refreshed) {
+          setForecastBootstrapProgress(1);
+          setForecastBootstrapping(false);
+          return;
+        }
+      }
+
+      if (mounted && !cancelled) {
+        setForecastBootstrapMessage('Forecast no disponible todavía');
+        setForecastBootstrapProgress(1);
+        setForecastBootstrapping(false);
+      }
+    };
+
+    bootstrapForecast();
+
+    return () => {
+      mounted = false;
+      cancelled = true;
+    };
+  }, [authBootstrapped]);
 
   useEffect(() => {
     if (!authBootstrapped || !authUser) return;
@@ -153,6 +217,34 @@ export default function App() {
       savePushPresenceToDatabase(false).catch(() => {});
     };
   }, [authBootstrapped, authUser]);
+
+  useEffect(() => {
+    if (!activeSpot?.name) return;
+
+    const spotKey = activeSpot.name.toLowerCase();
+    if (liveForecastBySpot[spotKey] || getCachedForecast(activeSpot.name)) {
+      return;
+    }
+
+    let mounted = true;
+
+    const warmForecastCache = async () => {
+      const live = await fetchSpotForecastByName(activeSpot.name, 16);
+      if (!mounted || !live) return;
+
+      setCachedForecast(activeSpot.name, live);
+      setLiveForecastBySpot((prev) => {
+        if (prev[spotKey]) return prev;
+        return { ...prev, [spotKey]: live };
+      });
+    };
+
+    warmForecastCache();
+
+    return () => {
+      mounted = false;
+    };
+  }, [activeSpot?.name, liveForecastBySpot]);
 
   useEffect(() => {
     let mounted = true;
@@ -500,6 +592,7 @@ export default function App() {
             authUser={authUser}
             isFavorite={isSpotFavorite(activeSpot?.name)}
             onToggleFavorite={toggleFavoriteSpot}
+            initialLiveForecast={activeSpot?.name ? liveForecastBySpot[activeSpot.name.toLowerCase()] || getCachedForecast(activeSpot.name) : null}
           />
         </Animated.View>
       )}
@@ -588,6 +681,23 @@ export default function App() {
           isAdmin={isAdmin}
         />
       ) : null}
+
+      {forecastBootstrapping ? (
+        <View style={styles.forecastBootstrapOverlay} pointerEvents="auto">
+          <View style={styles.forecastBootstrapCard}>
+            <Text style={styles.forecastBootstrapTitle}>Cargando forecast</Text>
+            <View style={styles.forecastBootstrapTrack}>
+              <View
+                style={[
+                  styles.forecastBootstrapFill,
+                  { width: `${Math.max(8, Math.round(forecastBootstrapProgress * 100))}%` },
+                ]}
+              />
+            </View>
+            <Text style={styles.forecastBootstrapMessage}>{forecastBootstrapMessage}</Text>
+          </View>
+        </View>
+      ) : null}
       </View>
     </SafeAreaProvider>
   );
@@ -607,5 +717,47 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     fontSize: 15,
     fontWeight: '700',
+  },
+  forecastBootstrapOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(2, 6, 23, 0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    zIndex: 9999,
+  },
+  forecastBootstrapCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#0F172A',
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.24)',
+  },
+  forecastBootstrapTitle: {
+    color: '#E2E8F0',
+    fontSize: 17,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  forecastBootstrapTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(148, 163, 184, 0.18)',
+    overflow: 'hidden',
+  },
+  forecastBootstrapFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#46D7FF',
+  },
+  forecastBootstrapMessage: {
+    marginTop: 10,
+    color: '#94A3B8',
+    fontSize: 13,
+    textAlign: 'center',
   },
 });

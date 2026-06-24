@@ -1,6 +1,31 @@
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 const NZ_TIMEZONE = 'Pacific/Auckland';
+const forecastCache = new Map();
+const FORECAST_CACHE_TTL_MS = 10 * 60 * 1000;
+
+export const getCachedForecast = (spotName) => {
+  if (!spotName) return null;
+
+  const entry = forecastCache.get(String(spotName).toLowerCase());
+  if (!entry) return null;
+
+  if (Date.now() - entry.cachedAt > FORECAST_CACHE_TTL_MS) {
+    forecastCache.delete(String(spotName).toLowerCase());
+    return null;
+  }
+
+  return entry.data;
+};
+
+export const setCachedForecast = (spotName, forecast) => {
+  if (!spotName || !forecast) return;
+
+  forecastCache.set(String(spotName).toLowerCase(), {
+    cachedAt: Date.now(),
+    data: forecast,
+  });
+};
 
 const toNzDateKey = (isoDateTime) => {
   if (!isoDateTime) return '';
@@ -246,9 +271,41 @@ export const fetchLiveSpotRatings = async (spotNames = []) => {
   return bySpot;
 };
 
+export const requestForecastRefresh = async () => {
+  if (!isSupabaseConfigured || !supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.rpc('trigger_forecast_refresh');
+  return !error;
+};
+
+export const hasAnyForecastData = async () => {
+  if (!isSupabaseConfigured || !supabase) {
+    return false;
+  }
+
+  const { data, error } = await supabase
+    .from('spot_forecast_daily')
+    .select('id')
+    .eq('provider', 'open-meteo')
+    .limit(1);
+
+  if (error) {
+    return false;
+  }
+
+  return Array.isArray(data) && data.length > 0;
+};
+
 export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
   if (!isSupabaseConfigured || !supabase || !spotName) {
     return null;
+  }
+
+  const cachedForecast = getCachedForecast(spotName);
+  if (cachedForecast) {
+    return cachedForecast;
   }
 
   const { data: dailyRows, error: dailyError } = await supabase
@@ -332,6 +389,7 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
       : null;
     const avgWindKph = toKph(avgWindKts);
     const dayStars = getRowStars(primaryHeight, row.swell_wave_period_max_s || row.wave_period_max_s, avgWindKph);
+    const hasValidSurfData = row.swell_wave_height_max_m !== null && row.swell_wave_height_max_m !== undefined;
 
     return {
       date: dateKey,
@@ -356,6 +414,7 @@ export const fetchSpotForecastByName = async (spotName, forecastDays = 16) => {
       waterTemp: Math.round(avgTemp),
       tideData: buildTideData(dayHourly),
       neopreneThickness: neopreneByTemp(avgTemp),
+      hasValidSurfData,
       hourlyData: dayHourly.slice(0, 24).map((h) => {
         // Si las columnas horarias no existen, usar datos diarios como fallback
         const surfHeight = h.wave_height_m ?? h.swell_wave_height_m ?? primaryHeight;

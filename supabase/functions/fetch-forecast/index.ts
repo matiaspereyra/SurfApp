@@ -90,6 +90,7 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   });
 
 const numberOrNull = (value: unknown) => {
+  if (value === null || value === undefined) return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 };

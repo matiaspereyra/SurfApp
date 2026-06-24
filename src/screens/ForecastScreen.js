@@ -10,7 +10,7 @@ import * as Haptics from 'expo-haptics';
 import SunCalc from 'suncalc';
 import AppHeader from '../components/AppHeader';
 import { SURFLINE_COLORS, getSpotShowName } from '../constants/Spots';
-import { fetchSpotForecastByName } from '../services/forecastService';
+import { fetchSpotForecastByName, requestForecastRefresh } from '../services/forecastService';
 import { getAlertRule, upsertAlertRule } from '../services/alertRuleService';
 import { isCompactLayout } from '../theme/ui';
 
@@ -576,9 +576,12 @@ export default function ForecastScreen({
   authUser,
   isFavorite = false,
   onToggleFavorite = () => {},
+  initialLiveForecast = null,
 }) {
-  const [liveSpot, setLiveSpot] = useState(null);
+  const [liveSpot, setLiveSpot] = useState(initialLiveForecast || null);
   const [loadingLiveForecast, setLoadingLiveForecast] = useState(false);
+  const [forecastLoadProgress, setForecastLoadProgress] = useState(0);
+  const [isRefreshRequested, setIsRefreshRequested] = useState(false);
   const [expandedDailySections, setExpandedDailySections] = useState({});
   const [tideCursorByDay, setTideCursorByDay] = useState({});
   const [tideCursorMovedByDay, setTideCursorMovedByDay] = useState({});
@@ -609,22 +612,81 @@ export default function ForecastScreen({
   }, [spot?.id]);
 
   useEffect(() => {
+    if (initialLiveForecast && initialLiveForecast.name === spot?.name) {
+      setLiveSpot(initialLiveForecast);
+      setLoadingLiveForecast(false);
+      setForecastLoadProgress(1);
+      setIsRefreshRequested(false);
+    }
+  }, [initialLiveForecast, spot?.name]);
+
+  useEffect(() => {
     let mounted = true;
+    let cancelled = false;
+
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
     const loadLiveForecast = async () => {
       if (!spot?.name) {
         if (mounted) {
           setLiveSpot(null);
+          setLoadingLiveForecast(false);
+          setForecastLoadProgress(0);
+          setIsRefreshRequested(false);
+        }
+        return;
+      }
+
+      if (initialLiveForecast && initialLiveForecast.name === spot.name) {
+        if (mounted) {
+          setLiveSpot(initialLiveForecast);
+          setLoadingLiveForecast(false);
+          setForecastLoadProgress(1);
+          setIsRefreshRequested(false);
         }
         return;
       }
 
       setLoadingLiveForecast(true);
+      setForecastLoadProgress(0);
+      setIsRefreshRequested(false);
+
       const live = await fetchSpotForecastByName(spot.name, 16);
 
-      if (mounted) {
+      if (!mounted || cancelled) return;
+
+      if (live) {
         setLiveSpot(live);
+        setForecastLoadProgress(1);
         setLoadingLiveForecast(false);
+        return;
+      }
+
+      setIsRefreshRequested(true);
+      await requestForecastRefresh().catch(() => {});
+
+      const maxAttempts = 8;
+      for (let attempt = 1; attempt <= maxAttempts && mounted && !cancelled; attempt += 1) {
+        setForecastLoadProgress(Math.min(0.95, attempt / maxAttempts));
+        await wait(6000);
+
+        if (!mounted || cancelled) return;
+
+        const refreshed = await fetchSpotForecastByName(spot.name, 16);
+        if (!mounted || cancelled) return;
+
+        if (refreshed) {
+          setLiveSpot(refreshed);
+          setForecastLoadProgress(1);
+          setLoadingLiveForecast(false);
+          setIsRefreshRequested(false);
+          return;
+        }
+      }
+
+      if (mounted && !cancelled) {
+        setLoadingLiveForecast(false);
+        setIsRefreshRequested(false);
       }
     };
 
@@ -632,6 +694,7 @@ export default function ForecastScreen({
 
     return () => {
       mounted = false;
+      cancelled = true;
     };
   }, [spot?.name]);
 
@@ -681,6 +744,8 @@ export default function ForecastScreen({
   const nzTodayDateKey = getNzTodayDateKey();
   const upcomingForecast = displayForecast.filter((day) => {
     if (!day?.date || !nzTodayDateKey) return false;
+    // Excluir días sin datos válidos de swell
+    if (day.hasValidSurfData === false) return false;
     return day.date >= nzTodayDateKey;
   });
   const currentForecastDay = upcomingForecast[0] || null;
@@ -689,6 +754,7 @@ export default function ForecastScreen({
     : formatHeightRangeMeters(displaySpot?.height);
   const hasLiveForecast = Boolean(displaySpot && upcomingForecast.length);
   const showForecastSkeleton = loadingLiveForecast && !hasLiveForecast;
+  const showForecastBootstrapBar = loadingLiveForecast && !hasLiveForecast;
   const hourlyForecastByDay = upcomingForecast
     .slice(0, 16)
     .map((day) => {
@@ -923,11 +989,30 @@ export default function ForecastScreen({
             </View>
             <Text style={styles.liveHint}>
               {loadingLiveForecast
-                ? 'Actualizando forecast real...'
+                ? isRefreshRequested
+                  ? 'Sin datos en cache, solicitando actualización...'
+                  : 'Actualizando forecast real...'
                 : hasLiveForecast
                   ? 'Forecast real activo'
                   : 'Sin forecast real disponible para este spot'}
             </Text>
+            {showForecastBootstrapBar ? (
+              <View style={styles.forecastLoadingWrap}>
+                <View style={styles.forecastLoadingTrack}>
+                  <View
+                    style={[
+                      styles.forecastLoadingFill,
+                      { width: `${Math.max(8, Math.round(forecastLoadProgress * 100))}%` },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.forecastLoadingText}>
+                  {isRefreshRequested
+                    ? 'Buscando datos de forecast...'
+                    : 'Cargando forecast...'}
+                </Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -1452,6 +1537,27 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   liveHint: { color: '#64748B', fontSize: 12, marginTop: 10 },
+  forecastLoadingWrap: {
+    marginTop: 12,
+  },
+  forecastLoadingTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(74, 85, 104, 0.5)',
+    overflow: 'hidden',
+  },
+  forecastLoadingFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#46D7FF',
+  },
+  forecastLoadingText: {
+    marginTop: 6,
+    color: '#C7D2FE',
+    fontSize: 11,
+    textAlign: 'center',
+    letterSpacing: 0.2,
+  },
   skeletonBlock: {
     backgroundColor: '#E2E8F0',
     borderRadius: 6,
